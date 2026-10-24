@@ -1,0 +1,52 @@
+# ---- 构建产物 ----
+build/
+out/
+bin/
+*.class
+*.log
+
+# ---- 本地工具（不入库） ----
+# 编辑器会话转储（曾把 45 MB 的 session.v3.jsonl 落到这里）
+extracted/
+
+# ---- 本地依赖 jar（离线构建用，不入库） ----
+libs/
+
+# ---- Gradle ----
+.gradle/
+gradle-app.setting
+
+# ---- IDE / 编辑器 ----
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.settings/
+.project
+.classpath
+
+# ---- 系统 ----
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# ---- 本地临时 ----
+*.bak
+*.tmp
+
+# ---- 敏感文件（绝不入库） ----
+.env
+.env.*
+*.token
+*.pem
+*.key
+*.p12
+*.jks
+*.pfx
+.gh-token
+gh-token
+credentials*
+
+# 本地私有：名字回滚工具与历史备份（绝不入库）
+.name-revert/

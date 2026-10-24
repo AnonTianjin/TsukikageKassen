@@ -1,0 +1,52 @@
+# ============================================================
+#  战国 3v3（三局两胜）— 能量槽 与 必杀技
+# ============================================================
+#  来源：击杀中地小兵（见 sengoku-minions.yml）。
+#  释放：能量满时按 Q —— 占用现有 Q 槽，不新增按键。
+#
+#  ⚠ 与 Q 的原行为的关系：
+#    能量【未满】时 Q 完全走原有逻辑（模式切换 / 装备切换，由 config.yml 的
+#    input.q-mode 决定），本文件不干预。
+#    只有能量满了，Q 才会被必杀技接管；放完立刻清空能量，Q 随即恢复原行为。
+#    这样"想切模式但能量正好满了"的唯一代价是放一次必杀，而不是永久失去切换能力。
+#
+#  本文件不会被插件覆盖：改完执行 /taketori reload 即生效。
+config-version: 1
+
+# 能量上限（攒满才能放）
+max: 100
+# 击杀一只中地小兵回多少能量
+per-minion: 8
+# 击杀精英回多少（战国模式目前没有精英，留给将来）
+per-elite-minion: 20
+# 显示方式：actionbar（默认，不占 BossBar）| bossbar | none
+# BossBar 那条留给小局比分，所以默认用动作栏
+display: actionbar
+# 释放必杀占用的输入槽；当前只支持 q
+ultimate-slot: q
+
+# 必杀技：先给全员一个统一默认，逐角色覆盖的位置在下面
+ultimate:
+  default:
+    # 效果类型名：当前实现的是「范围伤害 + 击退 + 可选减速」这一族（与 shockwave 同构）
+    type: shockwave
+    damage: 14.0
+    radius: 5.0
+    knockback: 0.8
+    launch: 0.4
+    # 附加减速（tick / 等级）；0 = 不减速
+    slow-duration: 0
+    slow-amplifier: 0
+    particle: EXPLOSION
+    sound: ENTITY_GENERIC_EXPLODE
+
+  # ── 逐角色覆盖（留白，将来填）─────────────────────────────
+  # 写法与 default 相同，例如：
+  # tsukuyomi:
+  #   type: shockwave
+  #   damage: 18.0
+  #   radius: 6.0
+  #   knockback: 0.9
+  #   launch: 0.5
+  #   particle: EXPLOSION
+  #   sound: ENTITY_GENERIC_EXPLODE

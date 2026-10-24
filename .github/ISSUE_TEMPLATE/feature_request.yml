@@ -1,0 +1,39 @@
+name: 功能建议
+description: 新角色 / 新武器 / 新技能、玩法数值调整、管理工具改进
+labels: ["enhancement"]
+body:
+  - type: dropdown
+    id: kind
+    attributes:
+      label: 建议类型
+      options:
+        - 新角色
+        - 新武器 / 新技能
+        - 3v3 积分赛调整
+        - PVE 月人入侵调整
+        - 大厅 / 分队 / 观战体验
+        - 管理工具 / 配置体验
+        - 其他
+    validations:
+      required: true
+  - type: textarea
+    id: motivation
+    attributes:
+      label: 想解决的问题或实现的效果
+      description: 现在缺什么 / 哪里不顺手？最好带一句实际对局或开服场景。
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 具体方案
+      description: |
+        尽量写到能落地的程度：
+        - 新武器：原型物品（如钻石锹）、四个按键槽各是什么技能、模式切换行为；
+        - 新角色：血量 / 移速 / 武器组合（参考 README 4.2 的表格）；
+        - 数值调整：改哪个配置键、从多少改成多少、为什么。
+  - type: textarea
+    id: alternative
+    attributes:
+      label: 备选方案
+      description: 有没有更简单的实现，或者用现有配置就能凑出来的写法？

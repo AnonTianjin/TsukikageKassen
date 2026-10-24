@@ -1,0 +1,43 @@
+name: 使用咨询
+description: 安装、划场地、开不了局、多世界接入等使用问题（不是插件 Bug）
+labels: ["question"]
+body:
+  - type: dropdown
+    id: stage
+    attributes:
+      label: 卡在哪一步
+      options:
+        - 安装 / 启动（jar 放不进、加载失败）
+        - 划场地（选区锄 / 基地 / 刷新区 / 据点）
+        - 大厅与告示牌
+        - 开局与分队
+        - PVE 设置
+        - 多世界（Multiverse 等）接入
+        - 权限 / 指令
+        - 其它
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: 问题描述
+      description: 你在做什么、看到了什么提示、和预期差在哪。
+    validations:
+      required: true
+  - type: input
+    id: server-version
+    attributes:
+      label: 服务端版本
+      description: "`/version` 的输出"
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: 自检与配置输出
+      description: |
+        建议附上：
+        - `/taketori doctor` 的输出；
+        - `/taketori arena list` 与 `/taketori lobby list`（注意「是否可开局 / 是否可用」一栏）；
+        - 控制台里 TsukikageKassen 相关的日志。
+      render: shell

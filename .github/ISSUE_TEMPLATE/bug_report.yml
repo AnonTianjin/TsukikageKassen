@@ -1,0 +1,83 @@
+name: Bug 报告
+description: 技能不触发、对局异常、配置报错等插件功能问题
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈！提交前请确认：
+        - 服务端是 **Paper 1.21.4**（`api-version` 低于该版本会拒绝加载）；
+        - 已跑过 `/taketori doctor` 自检，并把输出留在下面；
+        - 按键类问题请同时附上 `/taketori keys` 的回放结果。
+  - type: textarea
+    id: description
+    attributes:
+      label: 问题描述
+      description: 实际发生了什么？期望发生什么？
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 复现步骤
+      description: |
+        从装好插件开始一步步写清操作，例如：
+        1. `/taketori arena setbase red` 划基地
+        2. 点「加入对局」告示牌
+        3. 潜行两次触发第三槽技能
+      placeholder: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: 问题模块
+      options:
+        - 按键 / 技能触发
+        - 武器 / 角色数值
+        - 3v3 积分赛
+        - PVE 月人入侵
+        - 大厅 / 告示牌 / 菜单
+        - 指令 / 权限
+        - 多世界兼容（Multiverse 等）
+        - 其他
+    validations:
+      required: true
+  - type: input
+    id: server-version
+    attributes:
+      label: 服务端版本
+      description: "`/version` 的输出，例如 Paper 1.21.4-2xx-…"
+    validations:
+      required: true
+  - type: input
+    id: plugin-version
+    attributes:
+      label: 插件版本
+      description: 启动日志里「TsukikageKassen v… 已启用」那一行
+    validations:
+      required: true
+  - type: dropdown
+    id: multiworld
+    attributes:
+      label: 是否使用多世界插件
+      options:
+        - "否"
+        - "是（Multiverse / 其它）"
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: 相关日志
+      description: 控制台报错堆栈、`/taketori doctor` 与 `/taketori keys` 的输出。请直接粘贴文本，不要贴截图。
+      render: shell
+  - type: textarea
+    id: config
+    attributes:
+      label: 相关配置片段
+      description: 如果与 config.yml / weapons.yml / characters.yml 有关，贴出对应段落（可脱敏）。
+      render: yaml

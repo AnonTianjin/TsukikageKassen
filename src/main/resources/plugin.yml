@@ -1,0 +1,23 @@
+name: TsukikageKassen
+version: '${version}'
+main: com.taketori.kassen.TaketoriPlugin
+# api-version 只接受"主版本.次版本"。目标服务端是 Paper 1.21.4，因此写 "1.21"。
+# 写低了服务端会禁用新版 API，写高了则直接拒绝加载。
+api-version: '1.21'
+description: '月影合战：9 名角色 / 20 把武器 / 20 种技能，3v3 与 PVE（据点保卫、大波次）玩法，支持多世界服务器'
+authors: [ AnonTianjin ]
+website: 'https://github.com/AnonTianjin/TsukikageKassen'
+
+commands:
+  taketori:
+    description: 月影合战主命令
+    usage: '/taketori <menu|admin|ranks|tag|tags|character|skills|mode|f|keys|play|match|team|arena|lobby|room|moonmap|pve|stats|leave|surrender|party|rejoin|editor|give|debug|doctor|qmode|reload>'
+    permission: taketori.play
+
+permissions:
+  taketori.play:
+    description: 允许使用玩家指令（play / skills / mode / lobby join / leave 退出观战等）
+    default: true
+  taketori.admin:
+    description: 允许使用管理指令（give / character / arena（含 wand 选区锄）/ lobby 配置 / match force 强制开局 / editor 武器编辑 GUI / reload / debug）
+    default: op

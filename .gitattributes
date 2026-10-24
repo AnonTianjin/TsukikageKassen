@@ -1,0 +1,11 @@
+# 统一换行符：源码与文档用 LF，Windows 脚本用 CRLF
+* text=auto eol=lf
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# 二进制
+*.jar binary
+*.png binary
+*.jpg binary
+*.zip binary

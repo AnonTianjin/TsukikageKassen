@@ -1,0 +1,52 @@
+# ============================================================
+#  战国 3v3（三局两胜）— 箭楼
+# ============================================================
+#  箭楼的**位置**（占领区 / 铜钟 / 守卫刷新点）在 arenas.yml 的
+#  arenas.<id>.sengoku.towers 段里，由选区工具划定；本文件只管数值。
+#
+#  本文件不会被插件覆盖：改完执行 /taketori reload 即生效。
+config-version: 1
+
+towers:
+  # 地图上有几座箭楼（上下路各一 → 2）。缺少对应点位时 doctor 会点名。
+  count: 2
+  # 占领触发方式：
+  #   channel = 敲钟后读条 capture-seconds 秒（可被打断）
+  #   instant = 敲钟即占领（快速对局 / 调试用）
+  capture-mode: channel
+  capture-seconds: 5.0
+  # 无人读条时进度每秒衰减多少。0 = 不衰减（读一半跑掉也算数）
+  decay-per-second: 0.5
+  # 双方同时读条时是否互相锁死。true = 双方进度都停滞（需求第 9 条）
+  contest-lock: true
+  # 守卫被清空后多少秒重新刷新。
+  # 太小会出现「刚清完立刻又刷出来」，导致箭楼永远占不下来。
+  guard-respawn-seconds: 20
+
+guards:
+  # 中型头目「牛鬼」
+  ox-demon:
+    entity: HUSK
+    display: '<red>牛鬼</red>'
+    count: 1
+    health: 120.0
+    damage: 12.0
+    speed-amplifier: 0
+    patrol-radius: 12.0
+    aggro-radius: 16.0
+  # 「虾兵蟹将」：围绕箭楼巡逻的小怪群
+  shrimp-crab:
+    entity: VINDICATOR
+    display: '<gray>虾兵蟹将</gray>'
+    count: 8
+    health: 40.0
+    damage: 6.0
+    speed-amplifier: 0
+    patrol-radius: 12.0
+    aggro-radius: 16.0
+
+bell:
+  # 铜钟方块材质：右键它触发占领
+  material: BELL
+  sound: BLOCK_BELL_USE
+  particle: END_ROD

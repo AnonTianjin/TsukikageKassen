@@ -1,0 +1,93 @@
+# 月影合战 · 角色定义（战斗层）
+#
+# 角色决定"玩家能拿到哪些武器"以及基础属性。
+# weapons 的顺序同时也是发放武器时占用的快捷栏槽位顺序（config.yml 的 input.weapon-slots）。
+#
+# 拿两件武器的角色：用快捷栏 1 / 2 键换武器，Q 键留给"该武器自己的模式切换"。
+# 拿一件武器的角色：Q 键按武器配置切换模式或切换到另一件装备。
+#
+# 绑定角色时会同时发一套保护 II 的铁甲（config.yml 的 loadout）。
+
+characters:
+
+  tsukuyomi:
+    display: '<gradient:#f5c26b:#f78fb3>月读</gradient>'
+    weapons: [ tsukuyomi_hammer, tsukuyomi_bell ]
+    attributes:
+      max-health: 20.0
+      movement-speed: 0.1
+    lore:
+      - '<gray>月宫之主，以陨星锤开路，以镇魂铃庇佑同伴。'
+
+  shogun:
+    display: '<dark_purple>将军</dark_purple>'
+    weapons: [ shogun_konbo, shogun_odachi ]
+    attributes:
+      max-health: 24.0
+      movement-speed: 0.1
+    lore:
+      - '<gray>金棒与太刀并用，近远皆可。'
+
+  hayate:
+    display: '<white>疾风</white>'
+    weapons: [ hayate_sword, hayate_wire, hayate_kunai ]
+    attributes:
+      max-health: 20.0
+      movement-speed: 0.11
+    lore:
+      - '<gray>剑、钢丝与苦无并用，机动力最高。'
+
+  yuzuki:
+    display: '<green>夕月</green>'
+    weapons: [ yuzuki_bow, yuzuki_dagger ]
+    attributes:
+      max-health: 18.0
+      movement-speed: 0.1
+    lore:
+      - '<gray>远程压制，贴脸时用短匕脱身。'
+
+  tatewaki:
+    display: '<aqua>盾胁</aqua>'
+    weapons: [ tatewaki_shield, tatewaki_banner ]
+    attributes:
+      max-health: 26.0
+      movement-speed: 0.095
+    lore:
+      - '<gray>以盾为城，守中有反。'
+
+  # 月镜与冰棘鱼原为"特殊装备"，现已归属月巫
+  mikoto:
+    display: '<light_purple>月巫</light_purple>'
+    weapons: [ moon_mirror, frozen_swordfish ]
+    attributes:
+      max-health: 22.0
+      movement-speed: 0.1
+    lore:
+      - '<gray>月宫巫女，镜面反制与寒冰控制并用。'
+
+  kurogane:
+    display: '<gold>铁卫</gold>'
+    weapons: [ kurogane_fang, kurogane_collar, kurogane_iron_fang ]
+    attributes:
+      max-health: 24.0
+      movement-speed: 0.098
+    lore:
+      - '<gray>守夜之姿，咬住不放，替人挡刀。'
+
+  kage:
+    display: '<gray>影丸</gray>'
+    weapons: [ kage_gun, kage_lens ]
+    attributes:
+      max-health: 20.0
+      movement-speed: 0.105
+    lore:
+      - '<gray>远程点射与位移侦察，专打拉扯。'
+
+  yoshino:
+    display: '<aqua>吉野</aqua>'
+    weapons: [ yoshino_reed, yoshino_thread ]
+    attributes:
+      max-health: 19.0
+      movement-speed: 0.11
+    lore:
+      - '<gray>身法最轻，苇叶与丝线控场。'

@@ -1,0 +1,53 @@
+# ============================================================
+#  战国 3v3（三局两胜）— 大将击破器 与 跳跃台
+# ============================================================
+#  两者由同一个事件触发：己方占领任一箭楼后，敌方天守阁门前出现击破器、
+#  己方天守阁门前出现跳跃台。生成点取自 arenas.yml 的
+#  arenas.<id>.sengoku.keeps.<队伍>.door。
+#
+#  本文件不会被插件覆盖：改完执行 /taketori reload 即生效。
+config-version: 1
+
+siege-breaker:
+  material: NETHER_STAR
+  name: '<gold>大将击破器</gold>'
+  # 发光：掉落物落在草地 / 沙地上也能一眼看到（不会和普通物品混淆）
+  glow: true
+  # 生成点相对"天守阁门前点"再往外推几格，避免正好卡在门框里
+  spawn-distance-from-keep: 3.0
+  # 走近多少格内自动拾取
+  pick-radius: 2.0
+  # 携带者进入敌方天守阁范围后，读满多少秒算攻陷本小局
+  arm-time-seconds: 8.0
+  # 每队同时最多存在一个击破器（占领两座箭楼也只给一个）
+  one-per-team: true
+  # 重新占领箭楼时自动补齐被消耗掉的击破器
+  respawn-on-recapture: true
+  # 允许操作击破器的角色 id；留空 = 所有职业都可以（默认全开）
+  allowed-characters: [ ]
+  # 不可破坏：挡住火焰 / 爆炸 / 岩浆 / 仙人掌 / 信标消耗。
+  # ⚠ 虚空销毁拦不住——掉落物掉出世界是直接 discard，没有事件可拦；
+  #    所以生成点做了落点校正（见 SengokuSpots），避免它一开始就在边缘。
+  indestructible: true
+  # 不可丢弃：捡起来之后丢不掉，只能带着或死亡时掉落
+  undroppable: true
+
+jump-pad:
+  # teleport = 直接传送到目标箭楼（默认，10 秒内必然抵达）
+  # launch   = 给初速度弹射过去（手感优先，但受地形影响）
+  mode: teleport
+  # nearest-captured-tower = 最近的「己方已占领」箭楼
+  # specified              = 固定某座箭楼（用下面的 specified-tower）
+  target: nearest-captured-tower
+  specified-tower: 1
+  # 同一玩家的使用冷却（秒），防连点
+  cooldown-seconds: 3
+  launch:
+    power: 2.2
+    upward: 1.0
+  # 落地免摔窗口（tick）：刚复活的人被弹到箭楼不该摔死
+  fall-immunity-ticks: 100
+  particle: END_ROD
+  sound: ENTITY_ENDERMAN_TELEPORT
+  # 落地抗性时长（tick），给刚复活的人一点缓冲
+  resistance-ticks: 40

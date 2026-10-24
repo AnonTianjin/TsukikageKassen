@@ -1,0 +1,386 @@
+# 月影合战 · 战斗层配置
+# 修改后执行 /taketori reload 生效（无需重启服务器）
+config-version: 10
+
+# 语言文件（messages.yml）中的语言键
+language: zh_CN
+
+# 调试输出：开启后控制台会打印每次输入的去向，便于排查"按了没反应"：
+#   [input]  收到的原始交互事件（包括"不是插件武器"这种被忽略的情况）
+#   [skill]  技能派发结果（成功 / 冷却中 / 未绑定 / 类型未注册）
+#   [combat] 近战改写、弹体取消、摔落免疫、弓射击
+# 也可以在游戏里用 /taketori debug on 临时打开（本次运行有效）。
+# 排查用 /taketori doctor 可以一次性报告识别、绑定、名字解析等状态。
+debug: false
+
+storage:
+  # 当前只支持 yaml（文件存储），各类数据分别落在：
+  #   data/players.yml —— 玩家角色绑定 + 隐性标签
+  #   data/stats.yml   —— 跨局统计（积分 / 对局数 / 胜场 / 击杀 / 拆家 / 死亡 / 单局最高）
+  #   另：场地在 arena.yml、大厅在 lobby.yml、配置在各自的 yml 里
+  # 注意：SQL 后端尚未实现，改这一项不会有任何效果（保留此项只为将来扩展留位）。
+  type: yaml
+
+# ============================ 多世界兼容 ============================
+# 给 Multiverse 之类的多世界服务器用：控制"消息播报发给哪些世界"。
+# （"进服送大厅"接管哪些世界，见下面的 lobby.takeover-worlds）
+worlds:
+  # 消息播报范围
+  #   world = 只发给"消息所属世界"的玩家：对局播报→对局世界，大厅播报→大厅世界（默认）
+  #   all   = 全服广播（旧行为：多世界下所有世界都会看到对局的播报）
+  broadcast-scope: world
+
+# 表现层开关（本期只用原版粒子与音效，不使用资源包）
+feedback:
+  actionbar: true
+  particles: true
+  sounds: true
+  # 技能冷却条（骑马时马血条那种位置与样式的进度条）：
+  #   bossbar   = 屏幕上方进度条，每个技能一条，颜色按按键区分（默认）
+  #   actionbar = 只在底部文字里显示冷却秒数加进度字符
+  #   both      = 两者都显示
+  #   none      = 关闭
+  cooldown-display: bossbar
+
+# 隐性标签：只影响"同一个队伍里抢同一个角色"时的优先顺序（权重高者优先），
+# 不影响战斗数值、也不对玩家公开显示。
+#   · 同一个队伍里不允许出现相同角色；不同队伍之间可以有相同角色
+#   · 同队冲突时按权重裁决：权重高者拿到角色，权重低者需要换一个；权重相同则先到先得
+#   · 设置方式：/taketori tag <玩家> <标签>，或管理员菜单里的「隐性标签」
+tags:
+  default:
+    display: '<gray>普通</gray>'
+    weight: 0
+  vip:
+    display: '<gold>VIP</gold>'
+    weight: 10
+  staff:
+    display: '<red>管理</red>'
+    weight: 100
+
+items:
+  # 武器物品是否绑定所有者（防止交易 / 掉落转手）
+  soulbound: true
+  # 玩家进服时，若正处于一局已开打（玻璃笼/战斗中）的对局里，是否自动补发其角色武器。
+  # 大厅与等待区不发装备——选角色只记选择，武器与铁甲由开局统一发放。
+  auto-give-on-join: false
+  # 是否允许武器被丢出（Q 键拦截在此之上）
+  allow-drop: false
+
+# 菜单时钟：发给玩家的一个道具，拿在手里右键就打开玩家菜单（等价于 /taketori menu）
+# 默认进服自动发一个；丢不掉，避免误丢后没有菜单入口。
+menu-clock:
+  enabled: true
+  material: CLOCK
+  give-on-join: true
+  name: '<aqua>月影合战 <white>菜单时钟'
+  lore:
+    - '<gray>右键打开玩家菜单'
+    - '<dark_gray>与 /taketori menu 等价'
+
+# 对局功能壳：房间内发给玩家的道具（默认鹦鹉螺壳，落在快捷栏第 9 格）
+# 右键打开「退出对局 / 队伍投降」界面；进房即发，结算随背包快照一起消失。
+# 关掉后房间内不再发壳，退出与投降仍可用 /taketori leave 与 /taketori surrender。
+room-shell:
+  enabled: true
+  material: NAUTILUS_SHELL
+  name: '<aqua>对局面板 <white>鹦鹉螺壳'
+  lore:
+    - '<gray>右键打开：退出对局 / 队伍投降'
+    - '<dark_gray>仅在本局房间内可用'
+  leave:
+    # 对局中退出后是否保留重连窗口（窗口内可用 /taketori rejoin 回到原队）
+    # 关掉则退出立即释放槽位，位置可被他人补位。
+    rejoin-window: true
+
+input:
+  # Q 键处理方式：
+  #   drop      = Q 触发该武器 q 槽声明的技能（模式切换 / 装备切换）。默认值。
+  #   held-slot = Q 直接切换到下一件本角色的武器（不触发技能）
+  #   none      = 只拦截丢弃，不做任何切换
+  q-mode: drop
+  # 快捷栏中为角色武器预留的槽位（0-8）
+  weapon-slots: [ 0, 1, 2, 3 ]
+  # 第三槽技能的触发方式（可多选，用逗号分隔；写 all = 全部启用）
+  #   double-sneak = 双击潜行键（默认，最可靠：潜行是独立按键，原版一定会发出事件）
+  #   sneak-q      = 潜行 + Q
+  #   double-right = 双击右键（第二次右键改派给第三槽，所以不会"先被右键槽吃掉"）
+  #   f            = F 键（交换副手）；部分服务器/插件会把这个动作吞掉，收不到就换别的
+  #   sneak-right  = 潜行 + 右键（旧行为）；注意：对着方块右键时原版根本不发事件，只有右键空气可靠
+  # 按了没反应时：先执行 /taketori keys 看按键有没有传到服务端，再用 /taketori f 手动触发兜底。
+  shift-right-trigger: double-sneak
+
+# ============================ 对局规则（玩法层）============================
+# 3v3 积分赛：先到 600 分获胜，20 分钟超时按分高者胜。
+# 场地用指令划定（/taketori arena ...），保存在 arena.yml。
+match:
+  # 先达到多少分获胜
+  score-to-win: 600
+  # 时限（分钟）；到点按分高者胜，平分判平局
+  time-limit-minutes: 20
+  # 每队人数上限（随机分队的满员判定）
+  team-size: 3
+  # 死亡后多少秒自动复活（重生点固定为己方出生点；玩家自己点重生也可以）
+  respawn-delay-seconds: 5
+  # 死亡是否保留物品（竞技默认保留）
+  keep-inventory: true
+  # 对局模式：pvp = 红蓝对抗；pve = 所有人同一队打月人（不占点、默认无友伤保护）
+  # 也可以用指令切换：/taketori match mode pvp|pve
+  mode: pvp
+
+# ============================ 大厅 ============================
+# 大厅出生点、区域与告示牌都用指令设置（/taketori lobby ...），保存在 lobby.yml。
+lobby:
+  # 队列人数达到多少自动开局（0 = 只能手动 /taketori match start）
+  auto-start-players: 6
+  # 玩家进服是否自动传送到大厅
+  teleport-on-join: true
+  # 大厅区域内是否禁止掉血
+  protect: true
+  # 对局结束后是否把参赛者送回大厅
+  return-after-match: true
+  # 多世界兼容：只有从这些世界进服的玩家才会被自动送到大厅
+  #   留空（默认）= 只接管"大厅出生点所在的世界"，别的世界（资源世界、其它玩法世界）一概不碰
+  #   [ "*" ]      = 所有世界（旧行为：不管从哪进服都拽到大厅）
+  #   显式列出     = [ "world", "world_nether" ] 这样写
+  takeover-worlds: []
+
+# ============================ 房间等待区（BedWars 式匹配）============================
+# 玩家在大厅「快速加入」或从房间列表进入某个房间后，先在该场地的等待出生点集结，
+# 人数达标开始倒计时；开局瞬间分队并传送进出生点玻璃笼，笼子解除后正式开战。
+# 每个场地的等待出生点用 /taketori arena setwait 设置（未设置的场地不能开局）。
+waiting:
+  # 等待人数达到多少开始倒计时
+  min-players: 2
+  # 达到最低人数后的倒计时秒数
+  countdown-seconds: 90
+  # 房间满员后的短倒计时秒数（PVP 满员 = team-size*2；PVE 见 pve-full-players）
+  full-countdown-seconds: 5
+  # 人数过半场（超过 team-size，即 3v3 的第 4 人起）时压缩到的半挡倒计时秒数（0 = 关闭）
+  half-countdown-seconds: 30
+  # 开局后出生点玻璃笼的保护秒数（0 = 不用笼子，分队传送后立即开战）
+  cage-hold-seconds: 3
+  # 对局结束后在房间里停留多少秒再统一送回大厅
+  end-delay-seconds: 5
+  # 玻璃笼的方块材质（原版 Material，例如 GLASS / GLASS_PANE / WHITE_STAINED_GLASS）
+  cage-material: GLASS
+  # PVE 房间的满员人数（0 = 取 match.team-size）
+  pve-full-players: 0
+  # 虚空判定：等待者 Y 坐标低于「等待出生点 Y + 该偏移」时自动拉回（负数表示在出生点下方）
+  void-y-offset: -10
+  # 等待区是否启用完全保护（无伤害/不饥饿/禁破坏放置）
+  protect: true
+
+# ============================ 动态房间（月宫制）============================
+# 房间由玩家按需创建：/taketori room create 或菜单「降临月宫」——异步复制
+# moonmaps/<模板>/ 世界文件夹为服务器根目录下的 kassen_<序号>，创建者与加入者
+# 都传送到该世界；结算完成、玩家回到大厅后整场删除世界。arenas.yml 的条目即
+# "模板定义"（区域/点位在模板编辑世界里划定，/taketori moonmap load|unload 管理）。
+room:
+  # 同时存在的房间数上限（含创建中的），超过时拒绝创建
+  max-rooms: 8
+  # 每个玩家同时拥有的房间数上限（防单人/小号占满全部额度冻结匹配）
+  max-rooms-per-player: 1
+  # 房间世界名前缀（房间世界 = 前缀 + 自增序号）
+  world-prefix: kassen_
+  # 默认模板：快速加入在没有房间时自动用它建房（不存在时回落第一个就绪模板）
+  default-template: tsukuyomi
+  # 等待房全员离线多少秒后自动解散并回收世界
+  empty-dispose-seconds: 60
+  # 对局缺人宽限期（秒）：队友掉线后等这么久招补位，超时缺人队判负（0 = 禁用自动判负）
+  understaffed-grace-seconds: 60
+  # 断线重连时限（秒）：对局中掉线者在此时限内重连，自动回到原房原队（0 = 关闭重连）
+  rejoin-seconds: 300
+
+# 派对（组队）：好友组队后整队进入同一房间，开局分队时整组同队
+party:
+  # 派对人数上限（含房主）
+  max-size: 3
+
+scoring:
+  minion-kill: 3      # 击杀小怪得分
+  player-kill: 10     # 击杀对方玩家得分（队友互杀不计分）
+  base-capture: 50    # 拆除对方基地得分
+
+# 击杀回血：单位是「生命点」，2 点 = 1 颗心（默认 6 点 = 3 颗心）。0 = 关闭。
+# 击杀敌方玩家时立刻回血，满血不回、也不刷提示；回复量不会超过当前最大生命值
+# （角色有自定义血量上限时按那个上限封顶）。
+combat:
+  kill-heal: 6.0         # 击杀敌方玩家回血
+  minion-kill-heal: 0.0  # 击杀小兵回血（默认关闭；想让抢怪也回血就调大）
+  # 近战蓄力门控（0~1）：攻击冷却蓄力低于该值时保留原版轻击、不触发左键技能。
+  # 0.9 = 与满蓄只差一点点就放不出技能（奖励攻击节奏）；0 = 关闭门控
+  melee-charge-gate: 0.9
+  # 友伤保护：同一房间同一队的玩家互相不造成伤害
+  #   auto = PVP 与 PVE 模式均开启（默认）
+  #   on   = 两种模式都保护      off = 两种模式都不保护
+  friendly-fire-protection: auto
+  # 对局期间给参赛者自动续饱和（Saturation），对局外玩家不受影响；false = 饥饿照常消耗
+  match-saturation: true
+  # 开局与复活后的临时增益（"出生保护"），持续 duration-seconds 秒
+  # effects 里的名字用原版药水效果名，amplifier 0 = I 级
+  spawn-buff:
+    duration-seconds: 10
+    effects:
+      - type: RESISTANCE
+        amplifier: 1
+      - type: SPEED
+        amplifier: 0
+      - type: REGENERATION
+        amplifier: 0
+  # 第三槽技能（F 键 / 潜行+右键 / /taketori f）成功触发时的附加增益。
+  # 默认给 2 秒跳跃提升 V，让机动类技能接得上第二步；只在该次技能真的放出来时生效，
+  # 冷却中被拦下的按键不会白给增益。
+  third-slot-buff:
+    enabled: true
+    type: JUMP_BOOST   # 原版药水效果名
+    amplifier: 4       # 4 = V 级（0 = I 级）
+    ticks: 40          # 40 tick = 2 秒
+
+# 开局装备：开局时与角色武器一起**直接穿上**的一套护甲（自带不可破坏，不会被打碎）。
+# 目的：把所有人的"底子"拉平，避免有人裸装进场被一发带走。
+# 大厅与等待区选角色不发装备；你原来的护甲连同整个背包会在进房时被封存，结算原样返还。
+loadout:
+  armor-enabled: true     # 关掉就完全不发护甲
+  armor-material: IRON    # 套装材质：IRON / CHAINMAIL / GOLDEN / LEATHER / DIAMOND / NETHERITE
+  armor-protection: 2     # 保护附魔等级（2 = 保护 II）；0 = 不附魔
+
+# 月人刷新：种类 / 血量 / 精英属性在这里配置（全插件共用）。
+# 刷新节奏三项（interval-seconds / per-spawn / max-alive）是全局默认值，
+# 可在 arenas.yml 每个场地的 minion-spawn 段按场地覆盖（未配置的项用这里的默认值）。
+# 刷新区在 arenas.yml 的 minion-regions：<编号>.kind 可填 normal（只刷普通月人）
+# 或 mixed（普通+精英都刷，默认）；普通月人在全部区之间轮转均分，精英只在 mixed 区刷新。
+minion:
+  health: 40           # 普通月人血量
+  iron-armor: true     # 普通月人是否穿全套铁甲
+  interval-seconds: 9  # 刷新间隔（秒）——两类刷新区未单独配置时的回落值（全局默认，普通区可按场地覆盖）
+  per-spawn: 3         # 每批刷新的普通月人数量（全局默认，可按场地覆盖）
+  max-alive: 15        # 场上普通月人上限（达到就停止刷新；全局默认，可按场地覆盖）
+  # normal 与 mixed 两类刷新区各走一条独立计时循环，互不影响：
+  #   normal 循环 → 只刷 kind: normal 的区     mixed 循环 → 只刷 kind: mixed 的区（精英波也在这条循环里）
+  # enabled: false 的那条循环不启动、对应类型区域不刷怪；interval-seconds 未写时回落上面的全局值
+  normal:
+    enabled: true
+    interval-seconds: 9
+  mixed:
+    enabled: true
+    interval-seconds: 9
+  # 普通月人的种类与权重：每波按权重随机抽一种
+  #   ZOMBIE = 僵尸、SKELETON = 骷髅（弓手）；也可以填其它原版实体名
+  types:
+    ZOMBIE: 3
+    SKELETON: 2
+  # 精英月人：每 every-waves 波出一批（钻甲 + 药水 buff）
+  elite:
+    every-waves: 5      # 每 5 波出一批（0 或 1 = 关闭精英）
+    count: 2            # 每批数量
+    max-alive: 4        # 场上精英上限（独立于普通上限）
+    types: [ ZOMBIE, SKELETON ]
+    health: 80          # 精英血量
+    armor: DIAMOND      # 套装：IRON / DIAMOND / NETHERITE / NONE
+    attack-damage: 15.0 # 单次攻击伤害，单位是「生命点」（2 点 = 1 颗心）
+                        # 15 点 = 7.5 颗心；想要"15 颗心"请写 30.0
+    name: '<dark_red>精英月人</dark_red>'
+    buffs:              # 药水强化（名字用原版药水效果名）
+      - type: SPEED
+        amplifier: 1
+        duration-ticks: 1200
+      - type: RESISTANCE
+        amplifier: 0
+        duration-ticks: 1200
+      - type: STRENGTH
+        amplifier: 0
+        duration-ticks: 1200
+
+base:
+  # 每队基地数量，决定可用编号范围与"开局是否配齐"的要求：
+  #   3     = 每队 3 个（默认）：可用编号 1~3，双方都要配满 3 个才能开局
+  #   auto  = 不限制：以你实际划定的为准，每队至少有 1 个即可开局（编号最多到 16）
+  #   N     = 任意正整数（1~16）：可用编号 1~N，双方都要配满 N 个才能开局
+  # 改完记得确认双方实际配的数量对得上（/taketori arena list 会显示"是否可开局"）。
+  count-per-team: 3
+  capture-seconds: 10        # 拆除一个基地需要连续占点多少秒（核心耐久）
+  capture-delay-seconds: 60  # 开局保护期：前 60 秒禁止占点
+  decay-per-second: 0.5      # 区域内没有敌人时，进度每秒衰减多少（0 = 不衰减）
+  multi-player-bonus: true   # 多人同时占点是否加速
+
+# ============================ PVE：月人入侵 ============================
+# 只在模式为 pve 时生效（/taketori match mode pve）。
+# 难度用 /taketori pve difficulty <easy|normal|hard> 切换（会写回本文件）。
+pve:
+  difficulty: normal
+  # 大波次：每 interval-seconds 秒来一波精英潮，一共 count 波（打完就只剩常规刷怪）
+  big-waves:
+    enabled: true
+    count: 5                # 一共 5 个大波次
+    interval-seconds: 60    # 每波间隔约 1 分钟
+    start-delay-seconds: 30 # 开局多少秒后第一波
+    elites-per-wave: 8      # 每波刷新多少精英（难度档里可再覆盖）
+                            # 每波开始时先清掉上一波残留的精英，保证"每波就是这 8 个"
+    announce: true
+  # 精英随人数变强：每多 1 名参战玩家，精英的药水等级整体 +buffs-per-player
+  # 例：3 人局 normal 难度 → 额外 +1（难度）+2（人数）= 精英 buff 高 3 级
+  elite-scaling:
+    enabled: true
+    buffs-per-player: 1
+    max-buff-amplifier: 6   # 等级上限（0 = I 级，6 = VII 级）
+  # 保卫据点：一个不会移动、也不会被玩家打死的雪傀儡，月人靠近就会拆它。
+  # 位置用 /taketori arena setoutpost 划定；没划就用月人刷新区中心。
+  outpost:
+    enabled: true
+    name: '<aqua>月见据点</aqua>'
+    radius: 6.0                  # 月人进入这个半径内就开始拆
+    end-match-on-destroyed: true # 据点被拆掉就结束对局；false = 只播报不结束
+    # 三档难度：据点血量 / 月人每秒拆多少 / 每波精英数 / 精英额外 buff 等级
+    difficulties:
+      easy:
+        health: 240.0
+        damage-per-second: 4.0
+        elites-per-wave: 6
+        elite-buff-bonus: 0
+      normal:
+        health: 320.0
+        damage-per-second: 7.0
+        elites-per-wave: 8
+        elite-buff-bonus: 1
+      hard:
+        health: 460.0
+        damage-per-second: 11.0
+        elites-per-wave: 10
+        elite-buff-bonus: 2
+
+# 管理用具：选区锄（划场地的快捷方式，等价于 /taketori arena pos1 | pos2）
+#   左键点方块 = 角点 1，右键点方块 = 角点 2
+#   潜行 + 左键 = 清空选区，潜行 + 右键 = 查看选区信息
+#   选好之后用 /taketori arena setminion | setbase <red|blue> [编号] | setspawn 绑定
+setup-wand:
+  enabled: true             # 关掉就完全禁用这把锄头（原版行为恢复）
+  material: NETHERITE_HOE   # 绑定在什么物品上（填原版 Material 名）
+  # 道具刷新点工具（第二种选区工具，只有管理员拿着才生效）
+  # 默认用「结构空位」，冷门且不会被误当作建筑材料
+  loot-material: STRUCTURE_VOID
+  outline-particles: true   # 手持时用粒子描出选区边框，看不见就关掉
+  give-on-join: false       # 有 taketori.admin 权限的玩家进服自动发一把
+
+# 对局内道具刷新点（可选）：先用「道具点工具」划区域，再 /taketori arena setloot <编号> 绑定
+#   刷新池每一项：原版物品写 material + amount，插件武器写 weapon: <武器id>，用 weight 控制权重
+loot:
+  enabled: true
+  interval-seconds: 30      # 每个刷新点多久尝试刷一次
+  max-drops: 6              # 场上同时存在的道具上限（所有点合计）
+  despawn-seconds: 180      # 超过这个时间没被捡走就消失（0 = 不消失）
+  items:
+    - material: GOLDEN_APPLE
+      amount: 2
+      weight: 3
+    - material: SPLASH_POTION
+      amount: 1
+      weight: 2
+    - material: ENDER_PEARL
+      amount: 2
+      weight: 2
+    # 插件武器都绑定了角色（weapon: <id> 只有对应角色能捡起并使用），
+    # 所以默认池里只放原版道具，想掉武器就自己加 weapon: <武器id> 这一项。
+    - material: ENCHANTED_GOLDEN_APPLE
+      amount: 1
+      weight: 1
