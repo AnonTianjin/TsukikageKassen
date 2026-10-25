@@ -30,31 +30,13 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v6
 
-      # gradle build = 编译 128 个源文件 + checkCorePurity（core 层禁 Bukkit/NMS）
-      #              + checkParamKeys（技能参数键必须被 ConfigValidator 收录）
+      # gradle build = 编译全部源文件 + 三道护栏：
+      #   checkCorePurity（core 层禁 Bukkit/NMS）
+      #   checkParamKeys（技能参数键必须被 ConfigValidator 收录）
+      #   offlineCheck（tools/ 下 9 个离线断言/校验程序全跑，清单见 build.gradle.kts 的 offlineTools）
       # 依赖从 Maven Central 与 repo.papermc.io 解析，无需本地 libs/。
       - name: Gradle build
         run: ./gradlew build --no-daemon
-
-      # tools/ 下的离线断言测试：纯 core 逻辑，不依赖 Bukkit，可直接 javac/java 跑。
-      # （MinionRegionFilterTest / WeaponYamlEditorTest / MiniMessageClickTest
-      #   依赖 paper 层或资源文件，留在本地跑，见 CONTRIBUTING.md）
-      - name: Offline assertion tests
-        run: |
-          mkdir -p build/test-classes
-          javac -encoding UTF-8 --release 21 -d build/test-classes \
-            src/main/java/com/taketori/kassen/core/match/TeamId.java \
-            src/main/java/com/taketori/kassen/core/match/BaseArgParser.java \
-            src/main/java/com/taketori/kassen/core/match/sengoku/*.java \
-            src/main/java/com/taketori/kassen/core/worlds/WorldScope.java \
-            tools/SengokuRoundTest.java \
-            tools/TowerContestTest.java \
-            tools/BaseArgParserTest.java \
-            tools/WorldScopeTest.java
-          java -cp build/test-classes SengokuRoundTest
-          java -cp build/test-classes TowerContestTest
-          java -cp build/test-classes BaseArgParserTest
-          java -cp build/test-classes WorldScopeTest
 
       - name: Upload jar
         uses: actions/upload-artifact@v7

@@ -9,11 +9,14 @@
 | --- | --- |
 | JDK | 21（toolchain 已锁，装好即可） |
 | IDE | 任意；IntelliJ IDEA 直接打开工程 |
-| 网络 | 首次 `gradlew build` 需联网拉 Paper API 与 JUnit（走 Maven Central / repo.papermc.io） |
+| 网络 | 首次 `gradlew build` 需联网拉 Paper API（走 Maven Central / repo.papermc.io） |
 
 ```bash
-# 标准构建（含两道护栏 + JUnit）
+# 标准构建（三道护栏 + 全部离线断言）
 ./gradlew build            # Windows: gradlew.bat build
+
+# 只跑离线断言
+./gradlew offlineCheck
 
 # 无网络环境（libs/ 下已备好离线依赖时）
 pwsh -File build-offline.ps1
@@ -22,24 +25,19 @@ pwsh -File build-offline.ps1
 ## 构建护栏（违反即构建失败）
 
 1. **core 层纯净**（`checkCorePurity`）：`core/` 包禁止引用
-   `org.bukkit` / `io.papermc` / `net.minecraft` / `craftbukkit`：版本相关逻辑
+   `org.bukkit` / `io.papermc` / `net.minecraft` / `craftbukkit`，版本相关逻辑
    一律下沉到 `paper/` 或 `version/` 包，这是「升级只改适配层」的可验证承诺；
 2. **参数键收录**（`checkParamKeys`）：技能实现读取的每个 `params` 键必须被
-   `ConfigValidator` 收录，否则玩家改配置会静默失效。
+   `ConfigValidator` 收录，否则玩家改配置会静默失效；
+3. **离线断言**（`offlineCheck`）：`tools/` 下登记在 `build.gradle.kts` 的 `offlineTools`
+   列表里的每个测试类都必须通过。
 
 ## 测试
 
-- 离线断言测试在 `tools/` 下，纯 core 逻辑可直接跑（CI 也在跑）：
-  ```bash
-  javac -encoding UTF-8 --release 21 -d build/test-classes \
-    src/main/java/com/taketori/kassen/core/match/TeamId.java \
-    src/main/java/com/taketori/kassen/core/match/sengoku/*.java \
-    tools/SengokuRoundTest.java tools/TowerContestTest.java
-  java -cp build/test-classes SengokuRoundTest   # 74 项
-  java -cp build/test-classes TowerContestTest   # 39 项
-  ```
-- 依赖 paper 层或资源文件的测试（`MinionRegionFilterTest`、`WeaponYamlEditorTest`、
-  `MiniMessageClickTest`）按各自文件头注释的命令在本地跑；
+- 离线断言在 `tools/` 下，都是带 `main` 的独立类，`./gradlew build`（或 `./gradlew offlineCheck`）
+  会全部执行，CI 跑的是同一条命令；
+- **新增测试类必须登记**：在 `build.gradle.kts` 的 `offlineTools` 里补一行
+  `OfflineTool("Foo", "offlineFoo", emptyList())`。漏登记不会报错，只会静默不执行；
 - 涉及游戏内行为的改动请在真机（Paper 1.21.4）上验证一遍再提 PR。
 
 ## 提交约定

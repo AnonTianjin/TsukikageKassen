@@ -9,7 +9,6 @@ import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
 import org.bukkit.event.entity.PlayerDeathEvent;
-import org.bukkit.event.inventory.InventoryAction;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.event.player.PlayerDropItemEvent;
@@ -105,13 +104,15 @@ public final class RoomShellListener implements Listener {
                 || plugin.roomShell().isRoomShell(event.getCursor())) {
             return true;
         }
-        if (event.getAction() == InventoryAction.HOTBAR_SWAP
-                || event.getAction() == InventoryAction.HOTBAR_MOVE_AND_READD) {
+        // 键盘交换两条路径：数字键换快捷栏（NUMBER_KEY）与 F 键换副手（SWAP_OFFHAND）。
+        // 按 ClickType 判定而不是按 InventoryAction，是因为 HOTBAR_MOVE_AND_READD
+        // 已被标记为待删除，用 isKeyboardClick() 一次覆盖两种 action 且不会随枚举移除而失效。
+        if (event.getClick().isKeyboardClick()) {
             int button = event.getHotbarButton();
-            ItemStack hotbar = button >= 0
+            ItemStack hand = button >= 0
                     ? player.getInventory().getItem(button)
                     : player.getInventory().getItemInOffHand();
-            return plugin.roomShell().isRoomShell(hotbar);
+            return plugin.roomShell().isRoomShell(hand);
         }
         return false;
     }

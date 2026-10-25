@@ -16,9 +16,8 @@ repositories {
 dependencies {
     // Paper 1.21.4 的 API 坐标沿用「主.次.修订-R0.1-SNAPSHOT」的老格式。
     compileOnly("io.papermc.paper:paper-api:1.21.4-R0.1-SNAPSHOT")
-
-    testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
-    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+    // 没有 src/test/：断言全部写在 tools/ 里，由 offlineTools 以 JavaExec 直接跑，
+    // 不引入 JUnit（声明了也只会得到 compileTestJava NO-SOURCE）。
 }
 
 java {
@@ -67,7 +66,7 @@ val checkCorePurity by tasks.registering {
         if (offenders.isNotEmpty()) {
             throw GradleException("core 层出现版本相关依赖，请下沉到 paper/ 或 version/ 包：\n" + offenders.joinToString("\n"))
         }
-        logger.lifecycle("checkCorePurity: core/ 层无 Bukkit/NMS 引用 ✓")
+        logger.lifecycle("checkCorePurity: core/ 层无 Bukkit/NMS 引用，通过")
     }
 }
 
@@ -76,7 +75,7 @@ tasks.named("build") { dependsOn(checkCorePurity) }
 
 // ---------------------------------------------------------------------------
 // 参数键护栏：技能实现读取的参数键必须被 ConfigValidator 收录。
-// 否则玩家在 weapons.yml 里改了某个键，代码读的却是另一个键 —— 配置静默失效且无任何报错。
+// 否则玩家在 weapons.yml 里改了某个键，代码读的却是另一个键，配置静默失效且无任何报错。
 // ---------------------------------------------------------------------------
 val checkParamKeys by tasks.registering {
     group = "verification"
@@ -119,14 +118,14 @@ val checkParamKeys by tasks.registering {
         if (problems.isNotEmpty()) {
             throw GradleException("技能参数键与校验表不一致（配置会静默失效）：\n" + problems.joinToString("\n"))
         }
-        logger.lifecycle("checkParamKeys: 技能读取的参数键与校验表一致 ✓")
+        logger.lifecycle("checkParamKeys: 技能读取的参数键与校验表一致，通过")
     }
 }
 
 tasks.named("check") { dependsOn(checkParamKeys) }
 
 // ---------------------------------------------------------------------------
-// 离线验证程序（tools/）：不依赖运行中的服务器——参数解析、MiniMessage 按钮、
+// 离线验证程序（tools/）：不依赖运行中的服务器，覆盖参数解析、MiniMessage 按钮、
 // 多世界作用域、weapons.yml 健全性、YAML 编辑器回归。
 // 接入构建后可用 ./gradlew offlineCheck 一键运行，避免它们沦为无人编译的死代码。
 //
@@ -152,12 +151,18 @@ val compileOfflineTools by tasks.registering(JavaCompile::class) {
 
 data class OfflineTool(val mainClass: String, val taskName: String, val arguments: List<String>)
 
+// tools/ 下每一个带 main 的类都必须登记在这里：登记遗漏 = 那句断言永远不执行，
+// 而 CompileOfflineTools 仍会把它编译成功，构建依旧绿灯（静默漏测）。
+// CI 只跑 ./gradlew build，因此这份列表就是唯一的测试清单，不再额外手写 javac。
 val offlineTools = listOf(
     OfflineTool("BaseArgParserTest", "offlineBaseArgParser", emptyList()),
+    OfflineTool("LegacyConfigFallbackTest", "offlineLegacyConfigFallback", emptyList()),
     OfflineTool("MiniMessageClickTest", "offlineMiniMessageClick", emptyList()),
+    OfflineTool("MinionRegionFilterTest", "offlineMinionRegionFilter", emptyList()),
+    OfflineTool("SengokuRoundTest", "offlineSengokuRound", emptyList()),
+    OfflineTool("TowerContestTest", "offlineTowerContest", emptyList()),
     OfflineTool("WeaponYamlCheck", "offlineWeaponYamlCheck", listOf("src/main/resources")),
     OfflineTool("WeaponYamlEditorTest", "offlineWeaponYamlEditor", emptyList()),
-    OfflineTool("LegacyConfigFallbackTest", "offlineLegacyConfigFallback", emptyList()),
     OfflineTool("WorldScopeTest", "offlineWorldScope", emptyList())
 )
 
@@ -186,7 +191,5 @@ offlineTools.forEach { tool ->
     offlineCheck { dependsOn(execTask) }
 }
 
-tasks.named("check") { dependsOn(checkParamKeys) }
-tasks.named("build") { dependsOn(checkParamKeys) }
-// 离线验证随 build 自动运行，防止 tools/ 沦为无人编译的死代码
-tasks.named("check") { dependsOn(offlineCheck) }
+// build 经由 check 汇总三道护栏：参数键收录 + 离线断言（checkCorePurity 已单独接入 check）
+tasks.named("check") { dependsOn(checkParamKeys, offlineCheck) }

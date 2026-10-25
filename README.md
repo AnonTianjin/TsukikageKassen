@@ -16,6 +16,18 @@
 | 额外依赖 | 无 |
 | 许可 | MIT |
 
+## 文档索引
+
+| 文档 | 内容 |
+| --- | --- |
+| [区域配置](docs/regions.md) | 全部区域类型、划点指令与 `arenas.yml` 存储结构 |
+| [PVP / PVE 模式](docs/pvp-pve.md) | 据点保卫、大波次、包点攻防的判定细节 |
+| [战国 3v3](docs/sengoku-3v3.md) | 三局两胜赛制、箭楼 / 击破器 / 跳跃台 / 小兵 / 能量 |
+| [武器设计](docs/weapons.md) | 9 角色 / 20 武器的技能组合与数值取向 |
+| [多世界](docs/multi-world.md) | 消息与接管的作用域、跨世界房间的资源回收 |
+| [方法流程](METHOD-FLOWS.md) | 逐条对局的调用链与状态迁移（开发向） |
+| [发版说明](docs/releases/) | 每个版本的 Release 正文与产物校验值 |
+
 ---
 
 # 给服主与玩家
@@ -23,12 +35,12 @@
 ## 一、安装
 
 1. 从 [Releases](https://github.com/AnonTianjin/TsukikageKassen/releases/latest) 下载
-   `tsukikage-kassen-1.7.0.jar`，放进服务端 `plugins/` 目录，重启服务器。
+   最新版本的 `tsukikage-kassen-<版本>.jar`，放进服务端 `plugins/` 目录，重启服务器。
 2. 首次启动会在 `plugins/TsukikageKassen/` 生成 `config.yml`、`weapons.yml`、`characters.yml`、`messages.yml`、五份 `sengoku*.yml` 与模板目录 `moonmaps/`。
-3. 控制台出现下面这行即加载成功：
+3. 控制台出现下面这行即加载成功（`v` 后面是实际版本号）：
 
 ```
-TsukikageKassen v1.7.0 已启用：20 把武器 / 9 个角色 / 20 种技能类型（适配层 default）
+TsukikageKassen v<版本> 已启用：20 把武器 / 9 个角色 / 20 种技能类型（适配层 default）
 ```
 
 | 权限 | 默认 | 用途 |
@@ -568,14 +580,15 @@ paper 层执行：技能实现、实体、粒子、记分板、世界管理
 ### Gradle（有网络时）
 
 ```bash
-gradle build          # 产物在 build/libs/
+./gradlew build          # Windows: gradlew.bat build；产物在 build/libs/
 ```
 
-`build.gradle.kts` 内置两道护栏：`checkCorePurity`（`core/` 层出现 Bukkit / NMS 引用即失败）与
-`checkParamKeys`（技能读取的参数键必须在校验表里登记）。
+`build.gradle.kts` 内置三道护栏，任一违反即构建失败：`checkCorePurity`（`core/` 层出现
+Bukkit / NMS 引用）、`checkParamKeys`（技能读取的参数键必须在校验表里登记）、
+`offlineCheck`（`tools/` 下全部离线断言）。
 
-推送到 `main` 后 CI 跑同一套判定。产物 jar 不进仓库：构建结果上传成 Actions artifact，
-正式发布的包挂在 GitHub Release 资产上，需要成品直接去 Release 下载。
+推送到 `main` 后 CI 跑的就是同一条 `./gradlew build`，不再额外手写编译命令。产物 jar 不进仓库：
+构建结果上传成 Actions artifact，正式发布的包挂在 GitHub Release 资产上，需要成品直接去 Release 下载。
 
 ### 离线脚本（无网络、无 Gradle 时）
 
@@ -584,30 +597,36 @@ powershell -NoProfile -ExecutionPolicy Bypass -File build-offline.ps1 -LibsDirs 
 ```
 
 只需要 JDK 21 与一份 paper-api 1.21.4 jar（再加 adventure 系列的 api / key / minimessage）。
-脚本会跑同样的两道护栏、编译全部源文件、打包到 `build/dist/tsukikage-kassen-<版本>.jar`
+脚本会跑同样的护栏、编译全部源文件、打包到 `build/dist/tsukikage-kassen-<版本>.jar`
 （与 Gradle 的 `build/libs/tsukikage-kassen-<版本>.jar` 同名同内容）；
 版本号唯一来源是 `gradle.properties` 的 `version=`（`plugin.yml` 占位符、jar 文件名、启动日志都由它派生）。
 
 ### 离线断言（无需启动服务器）
 
-`tools/` 下的测试类都是带 `main` 的独立断言，编译后直接跑：
+`tools/` 下每个带 `main` 的类都是一份独立断言，清单登记在 `build.gradle.kts` 的 `offlineTools` 里，
+`./gradlew build` 会逐个执行（也可单跑 `./gradlew offlineCheck`）：
 
-```powershell
-javac -sourcepath src/main/java -d build/tools tools/SengokuRoundTest.java tools/TowerContestTest.java
-java -cp build/tools SengokuRoundTest      # 74 项：赛制规整 / 超时判定 / 平局语义 / 模式解析 / 能量规则
-java -cp build/tools TowerContestTest      # 39 项：箭楼互锁规则的各种组合
-```
+| 断言 | 覆盖 |
+| --- | --- |
+| `SengokuRoundTest` | 74 项：赛制规整 / 超时判定 / 平局语义 / 模式解析 / 能量规则 |
+| `TowerContestTest` | 39 项：箭楼互锁规则的各种组合 |
+| `WorldScopeTest` | 23 项：多世界作用域的接管与消息判定 |
+| `BaseArgParserTest` | 17 项：`/match` 参数解析的容错 |
+| `MinionRegionFilterTest` | 10 项：normal / mixed 两类刷新区不串区 |
+| `LegacyConfigFallbackTest` | 11 项：老配置缺键时只补默认值、不删自定义段 |
+| `WeaponYamlEditorTest` | 23 项：`weapons.yml` 编辑器的路径解析与注释保留 |
+| `WeaponYamlCheck` | 核对 weapons.yml / characters.yml 的材质、粒子、音效、药水、弹体、属性、技能类型与参数键 |
+| `MiniMessageClickTest` | 可点击文案（`click` / `hover`）的渲染 |
 
-其余工具：`WeaponYamlCheck`（核对 weapons.yml / characters.yml 里的材质、粒子、音效、药水、弹体、
-属性、技能类型与参数键）、`WorldScopeTest`（多世界判定回归）、`MiniMessageClickTest`、
-`BaseArgParserTest`、`WeaponYamlEditorTest`。
+新增一个带 `main` 的测试类后，务必在 `offlineTools` 里补一行，漏登记不会报错，
+只会静默不执行（`compileOfflineTools` 仍会把它编译通过）。
 
 ### 面向开发的扩展点
 
 - 加一把武器 / 一个技能：在 `weapons.yml` 里写数值，技能槽引用 20 种 `type` 之一并填参数键
   （全部键在启动校验表里，写错会点名）；不需要写 Java。要新技能类型才需要新增 `paper/skill/impl/` 实现类。
 - 加一个角色：`characters.yml` 加段即可（血量 / 移速 / 武器列表），同队不重复的约束自动生效。
-- 加一种对局模式：参照战国 3v3 的分层：纯规则进 `core/match/`（可离线断言），
+- 加一种对局模式：参照战国 3v3 的分层，纯规则进 `core/match/`（可离线断言），
   编排与管理器进 `paper/match/`，挂到 `GameRoom` 上但不改 `Phase` 语义。
 - 适配新版服务端：`version/DefaultVersionAdapter` 的注册表里补新名字即可，不改调用点。
 
@@ -627,7 +646,9 @@ src/main/java/com/taketori/kassen/
 src/main/resources/
 ├─ plugin.yml / config.yml / weapons.yml / characters.yml / messages.yml
 └─ sengoku.yml / sengoku-towers.yml / sengoku-siege.yml / sengoku-minions.yml / sengoku-energy.yml
-tools/          离线测试与校验器（无需启动服务器）
+tools/          离线测试与校验器（无需启动服务器），清单见 build.gradle.kts 的 offlineTools
+docs/           细分文档（区域配置 / 模式判定 / 战国 3v3 / 武器设计 / 多世界），releases/ 存发版说明
+METHOD-FLOWS.md 逐条对局的调用链与状态迁移
 build-offline.ps1  无网络环境的构建脚本
 ```
 
