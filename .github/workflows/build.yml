@@ -3,8 +3,8 @@ name: Build
 # 构建护栏 CI：与本地 build.gradle.kts 的两道护栏（core 纯净 / 参数键收录）
 # 和 tools/ 下的离线断言测试保持同一套判定，push 与 PR 都跑。
 #
-# 推送到 main 时会额外把产物 jar 提交回仓库根目录，文件名 TsukikageKassen-<版本>.jar，
-# 版本号读 gradle.properties。提交信息带 [skip ci]，不会自己触发自己。
+# 产物 jar 不进仓库：每次构建上传成 Actions artifact（保留期由 GitHub 决定），
+# 正式发布的 jar 挂在 GitHub Release 资产上，本地构建走 build/libs/ 或 build/dist/。
 
 on:
   push:
@@ -17,7 +17,6 @@ permissions:
 
 jobs:
   build:
-    if: "!contains(github.event.head_commit.message, '[skip ci]')"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -63,53 +62,3 @@ jobs:
           name: TsukikageKassen
           path: build/libs/*.jar
           if-no-files-found: ignore
-
-  # 只在 main 的 push 上跑：把刚构建出来的 jar 放回仓库根目录并提交。
-  # PR 不跑，避免把 fork 的产物写进主干；产物没变时 git diff 为空，不会产生空提交。
-  commit-jar:
-    needs: build
-    if: >-
-      github.event_name == 'push' &&
-      github.ref == 'refs/heads/main' &&
-      github.event.head_commit != null &&
-      !contains(github.event.head_commit.message, '[skip ci]')
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: main
-
-      - name: Download jar
-        uses: actions/download-artifact@v8
-        with:
-          name: TsukikageKassen
-          path: dist
-
-      - name: Place jar under versioned name
-        run: |
-          set -euo pipefail
-          version=$(sed -n 's/^version=//p' gradle.properties | tr -d '\r' | head -n1)
-          if [ -z "$version" ]; then echo "gradle.properties 里没读到 version"; exit 1; fi
-          src=$(find dist -maxdepth 1 -name '*.jar' | head -n1)
-          if [ -z "$src" ]; then echo "构建产物里没有 jar"; exit 1; fi
-          # 旧版本的 jar 不留在仓库里，只保留当前版本这一个文件
-          find . -maxdepth 1 -name 'TsukikageKassen-*.jar' -delete
-          cp "$src" "TsukikageKassen-${version}.jar"
-          echo "版本 ${version}，来源 $(basename "$src")，大小 $(stat -c%s "TsukikageKassen-${version}.jar") 字节"
-          echo "SHA256 $(sha256sum "TsukikageKassen-${version}.jar" | cut -d' ' -f1)"
-
-      - name: Commit and push
-        run: |
-          set -euo pipefail
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -A 'TsukikageKassen-*.jar'
-          if git diff --cached --quiet; then
-            echo '产物与仓库里的完全一致，跳过提交'
-            exit 0
-          fi
-          version=$(sed -n 's/^version=//p' gradle.properties | tr -d '\r' | head -n1)
-          git commit -m "自动更新构建产物 ${version} [skip ci]"
-          git push origin HEAD:main

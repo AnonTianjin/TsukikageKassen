@@ -574,9 +574,8 @@ gradle build          # 产物在 build/libs/
 `build.gradle.kts` 内置两道护栏：`checkCorePurity`（`core/` 层出现 Bukkit / NMS 引用即失败）与
 `checkParamKeys`（技能读取的参数键必须在校验表里登记）。
 
-推送到 `main` 后 CI 跑同一套判定，并把产物提交回仓库根目录的 `TsukikageKassen-<版本>.jar`，
-文件名里的版本号取自 `gradle.properties`。产物与仓库里那份完全一致时不产生提交；换版本时
-旧文件会被删掉，仓库里只留当前版本这一个 jar。
+推送到 `main` 后 CI 跑同一套判定。产物 jar 不进仓库：构建结果上传成 Actions artifact，
+正式发布的包挂在 GitHub Release 资产上，需要成品直接去 Release 下载。
 
 ### 离线脚本（无网络、无 Gradle 时）
 
