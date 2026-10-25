@@ -6,7 +6,7 @@
 
 一个 Minecraft 服务端战斗插件。核心是一层用原版事件重绑按键的技能系统。
 
-9 名角色、20 把武器、20 种技能。在技能层之上叠了三种玩法：3v3 积分赛、PVE 月人入侵、战国 3v3（三局两胜）。配套大厅、动态房间匹配（月宫制）、观战和跨局战绩。武器之间可以打出「挂标记 → 兑现」的组合技。
+角色、武器与技能全部由配置文件驱动，改数值不用重新编译。在技能层之上叠了三种玩法：3v3 积分赛、PVE 月人入侵、战国 3v3（三局两胜）。配套大厅、动态房间匹配（月宫制）、观战和跨局战绩。武器之间可以打出「挂标记 → 兑现」的组合技。
 
 | 项 | 说明 |
 | --- | --- |
@@ -15,18 +15,6 @@
 | 客户端 | 原版即可，不需要资源包或 mod |
 | 额外依赖 | 无 |
 | 许可 | MIT |
-
-## 文档索引
-
-| 文档 | 内容 |
-| --- | --- |
-| [区域配置](docs/regions.md) | 全部区域类型、划点指令与 `arenas.yml` 存储结构 |
-| [PVP / PVE 模式](docs/pvp-pve.md) | 据点保卫、大波次、包点攻防的判定细节 |
-| [战国 3v3](docs/sengoku-3v3.md) | 三局两胜赛制、箭楼 / 击破器 / 跳跃台 / 小兵 / 能量 |
-| [武器设计](docs/weapons.md) | 9 角色 / 20 武器的技能组合与数值取向 |
-| [多世界](docs/multi-world.md) | 消息与接管的作用域、跨世界房间的资源回收 |
-| [方法流程](METHOD-FLOWS.md) | 逐条对局的调用链与状态迁移（开发向） |
-| [发版说明](docs/releases/) | 每个版本的 Release 正文与产物校验值 |
 
 ---
 
@@ -40,7 +28,7 @@
 3. 控制台出现下面这行即加载成功（`v` 后面是实际版本号）：
 
 ```
-TsukikageKassen v<版本> 已启用：20 把武器 / 9 个角色 / 20 种技能类型（适配层 default）
+TsukikageKassen v<版本> 已启用：<武器数> 把武器 / <角色数> 个角色 / <技能类型数> 种技能类型（适配层 default）
 ```
 
 | 权限 | 默认 | 用途 |
@@ -56,7 +44,8 @@ TsukikageKassen v<版本> 已启用：20 把武器 / 9 个角色 / 20 种技能�
 
 从装好插件到能开一局，按顺序做完这十步即可（除第 1 步准备模板外，全部在游戏内执行）。
 第 2~6 步由划场地会话（`/taketori arena setup`）串起来：一次进入编辑世界，之后每划完一项
-会自动刷新「还缺什么」的清单。
+会自动刷新「还缺什么」的清单。区域类型、划点指令与 `arenas.yml` 的存储结构见
+[区域配置](docs/regions.md)，模板世界的复制 / 导入 / 回收见[多世界](docs/multi-world.md)。
 
 ### 1. 准备月面模板
 
@@ -275,6 +264,8 @@ c. 手头没有地图、只想先试一局：生成一张空白平坦模板：
 - 一局结束后参赛者的角色会被清空（含掉线者），下一局重新选择；隐性标签不受影响。
 - 每把武器的四个槽位分别绑了什么，用 `/taketori skills` 看手里的武器即可。
 
+每把武器的参数键、数值取向与角色间的连携设计见[武器设计](docs/weapons.md)。
+
 武器分组（`/taketori give <玩家> <武器id>` 里的 id）：
 
 | 分组 | 武器 id |
@@ -294,7 +285,7 @@ c. 手头没有地图、只想先试一局：生成一张空白平坦模板：
 - 四种状态机制：易伤标记（被标者受到的所有伤害提高）、破甲（独立乘区、硬上限 30%）、
   兑现（带 `echo-bonus` 的技能打在带状态的目标上放大伤害，动作栏报「兑现！」）、
   场地与召唤（领域类周期结算；召唤物带归属，队友打不到、击杀不计分）；
-- 组合技：9 个角色各有 1 组连携（如月读「镇魂铃挂易伤 → 陨星锤兑现」），全部由四种机制自然涌现，不需要额外配置；
+- 组合技：每个角色各有 1 组连携（如月读「镇魂铃挂易伤 → 陨星锤兑现」），全部由四种机制自然涌现，不需要额外配置；
 - 打击反馈：动作栏伤害数字汇总、冷却就绪提示音、连击可视化、重技能 title 演出；
 - **载体护栏**：手持插件武器时不挖方块、不放置、不丢弃、不换副手；绑定武器不能入箱、不会被他人捡走。
 
@@ -302,9 +293,11 @@ c. 手头没有地图、只想先试一局：生成一张空白平坦模板：
 
 | 模式 | 切换 | 节奏 |
 | --- | --- | --- |
-| 3v3 积分赛（PVP） | 默认 | 先到 600 分或 20 分钟到时比分高者胜 |
+| 3v3 积分赛（PVP） | 默认 | 先到 `match.score-to-win` 或时限到时比分高者胜 |
 | PVE 月人入侵 | `/taketori match mode pve [房间id]` | 全员同一队守据点，撑过五大波次 |
 | 战国 3v3（三局两胜） | `/taketori match mode sengoku_3v3 [房间id]` | 每小局攻陷敌方天守阁者胜，先赢两小局赢整场 |
+
+据点保卫、大波次与包点攻防的判定细节见[PVP / PVE 模式](docs/pvp-pve.md)。
 
 3v3 积分赛
 
@@ -339,7 +332,8 @@ PVE 月人入侵：所有人同一队、不占点、玩家之间默认无伤害�
 - 中地小兵：场地中央持续生成、允许被绕过；击杀攒能量，能量满按 Q 释放必杀技。
 
 场地点位用 `/taketori sengoku setkeep / settower / setbell …` 划定，`/taketori sengoku check`
-检查是否齐全；配置见[配置项](#五配置项)的五份 `sengoku*.yml`。
+检查是否齐全；赛制、点位与五份配置的完整说明见[战国 3v3](docs/sengoku-3v3.md)，
+配置项汇总见[配置项](#五配置项)。
 
 ### 3.4 房间与匹配（月宫制）
 
@@ -357,6 +351,8 @@ PVE 月人入侵：所有人同一队、不占点、玩家之间默认无伤害�
 
 - 进服送大厅只接管白名单世界（默认仅大厅出生点所在的世界，其它世界位置不变）；
 - 消息播报只发给消息所属世界（对局播报 → 对局世界，大厅播报 → 大厅世界）。
+
+作用域判定、跨世界房间的资源回收与常见排错见[多世界](docs/multi-world.md)。
 
 ## 四、指令参考
 
@@ -528,7 +524,7 @@ PVE 月人入侵：所有人同一队、不占点、玩家之间默认无伤害�
 
 ### 数值文件（插件不会覆盖）
 
-- `weapons.yml`：全部武器数值与技能参数。`attack-damage` / `attack-speed` 写的是最终值；`modes.<MODE>.skills` 会整段替换武器级同名槽位；写错的参数键会在启动时被配置校验点名。当前模板版本 `config-version: 10`（2.0 的武器与技能体系）。插件升级后如果控制台提示「你的 weapons.yml 是模板 v…」，同步方式是备份并删除该文件后 `/taketori reload` 重新生成。
+- `weapons.yml`：全部武器数值与技能参数。`attack-damage` / `attack-speed` 写的是最终值；`modes.<MODE>.skills` 会整段替换武器级同名槽位；写错的参数键会在启动时被配置校验点名。插件升级后如果控制台提示「你的 weapons.yml 是模板 v…」，说明手上这份是旧模板：备份后删掉它，`/taketori reload` 会重新生成当前模板。`config-version` 由插件写入，不用手改。参数键与数值取向见[武器设计](docs/weapons.md)。
 - `characters.yml`：角色血量、移速、武器列表与描述。
 - 战国 3v3 的五份配置（改完 `/taketori reload` 即生效）：
   `sengoku.yml`（赛制 / 局时长 / 超时判定 / 天守阁）、`sengoku-towers.yml`（箭楼与守卫）、
@@ -547,6 +543,7 @@ PVE 月人入侵：所有人同一队、不占点、玩家之间默认无伤害�
 插件分成两个严格分层：`core/` 是纯 Java（不 import 任何 Bukkit 类，构建护栏强制检查），
 承载全部规则与数值判定；`paper/` 是 Bukkit 适配层，把 core 的规则接到事件、实体与调度器上。
 这样设计的目的：规则可以被离线断言覆盖（见[构建与测试](#七构建与测试)），且将来换服务端平台时规则层可整体复用。
+各条链路的调用顺序与状态迁移（进场、开局、结算、重连、投降等）见[方法流程](METHOD-FLOWS.md)。
 
 ```
 请求（按键 / 伤害 / 指令）
@@ -562,9 +559,9 @@ paper 层执行：技能实现、实体、粒子、记分板、世界管理
 
 | 子系统 | 位置 | 职责 |
 | --- | --- | --- |
-| 技能战斗层 | `paper/skill/impl/` | 一个实现类对应 `weapons.yml` 的一个 `type`（20 种），`SkillTargets` 统一选目标（友伤保护 / 范围 / 视线锥 / 前置状态） |
+| 技能战斗层 | `paper/skill/impl/` | 一个实现类对应 `weapons.yml` 的一个 `type`，`SkillTargets` 统一选目标（友伤保护 / 范围 / 视线锥 / 前置状态） |
 | 房间生命周期 | `paper/match/room/`（`GameRoom` / `RoomManager`） | `Phase = WAITING → STARTING → CAGED → PLAYING → ENDING` 的状态机，模板世界复制 / 回收，每秒 `tickAll()` 驱动 |
-| 战国 3v3 | `core/match/sengoku/` + `paper/match/sengoku/` | core 放赛制规整、超时判定、箭楼互锁等纯规则；paper 放 `SengokuSession` 编排与 `TowerManager` / `SiegeBreakerManager` 等 8 个管理器。`GameRoom.Phase` 语义不变，多局制完全由 `SengokuSession` 承担，对 PVP / PVE 零影响 |
+| 战国 3v3 | `core/match/sengoku/` + `paper/match/sengoku/` | core 放赛制规整、超时判定、箭楼互锁等纯规则；paper 放 `SengokuSession` 编排与 `TowerManager` / `SiegeBreakerManager` 等管理器。`GameRoom.Phase` 语义不变，多局制完全由 `SengokuSession` 承担，对 PVP / PVE 零影响 |
 | 版本适配 | `version/`（`VersionAdapter`） | 属性 / 粒子 / 音效 / 药水名字的注册表解析，高版本改名不生效只告警不崩服 |
 | 配置 | `config/` | 加载、校验（写错的参数键启动即点名）、迁移（`config-version`） |
 | 持久化 | `data/` | YAML 存档：角色绑定、隐性标签、跨局战绩 |
@@ -589,6 +586,7 @@ Bukkit / NMS 引用）、`checkParamKeys`（技能读取的参数键必须在校
 
 推送到 `main` 后 CI 跑的就是同一条 `./gradlew build`，不再额外手写编译命令。产物 jar 不进仓库：
 构建结果上传成 Actions artifact，正式发布的包挂在 GitHub Release 资产上，需要成品直接去 Release 下载。
+每个版本的变更正文与产物校验值见[发版说明](docs/releases/)。
 
 ### 离线脚本（无网络、无 Gradle 时）
 
@@ -608,13 +606,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File build-offline.ps1 -LibsDirs 
 
 | 断言 | 覆盖 |
 | --- | --- |
-| `SengokuRoundTest` | 74 项：赛制规整 / 超时判定 / 平局语义 / 模式解析 / 能量规则 |
-| `TowerContestTest` | 39 项：箭楼互锁规则的各种组合 |
-| `WorldScopeTest` | 23 项：多世界作用域的接管与消息判定 |
-| `BaseArgParserTest` | 17 项：`/match` 参数解析的容错 |
-| `MinionRegionFilterTest` | 10 项：normal / mixed 两类刷新区不串区 |
-| `LegacyConfigFallbackTest` | 11 项：老配置缺键时只补默认值、不删自定义段 |
-| `WeaponYamlEditorTest` | 23 项：`weapons.yml` 编辑器的路径解析与注释保留 |
+| `SengokuRoundTest` | 赛制规整 / 超时判定 / 平局语义 / 模式解析 / 能量规则 |
+| `TowerContestTest` | 箭楼互锁规则的各种组合 |
+| `WorldScopeTest` | 多世界作用域的接管与消息判定 |
+| `BaseArgParserTest` | `/match` 参数解析的容错 |
+| `MinionRegionFilterTest` | normal / mixed 两类刷新区不串区 |
+| `LegacyConfigFallbackTest` | 老配置缺键时只补默认值、不删自定义段 |
+| `WeaponYamlEditorTest` | `weapons.yml` 编辑器的路径解析与注释保留 |
 | `WeaponYamlCheck` | 核对 weapons.yml / characters.yml 的材质、粒子、音效、药水、弹体、属性、技能类型与参数键 |
 | `MiniMessageClickTest` | 可点击文案（`click` / `hover`）的渲染 |
 
@@ -623,7 +621,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File build-offline.ps1 -LibsDirs 
 
 ### 面向开发的扩展点
 
-- 加一把武器 / 一个技能：在 `weapons.yml` 里写数值，技能槽引用 20 种 `type` 之一并填参数键
+- 加一把武器 / 一个技能：在 `weapons.yml` 里写数值，技能槽引用某个 `type` 并填参数键
   （全部键在启动校验表里，写错会点名）；不需要写 Java。要新技能类型才需要新增 `paper/skill/impl/` 实现类。
 - 加一个角色：`characters.yml` 加段即可（血量 / 移速 / 武器列表），同队不重复的约束自动生效。
 - 加一种对局模式：参照战国 3v3 的分层，纯规则进 `core/match/`（可离线断言），
@@ -636,7 +634,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File build-offline.ps1 -LibsDirs 
 src/main/java/com/taketori/kassen/
 ├─ core/        纯 Java 逻辑（角色 / 武器 / 技能定义、对局规则、战国规则、世界范围判定），禁止引用 Bukkit
 ├─ paper/       Bukkit 适配（监听器、技能实现、GUI、命令、房间与大厅管理、战国管理器）
-│  ├─ skill/impl/   技能实现，一个类对应 weapons.yml 里的一个 type（20 种）
+│  ├─ skill/impl/   技能实现，一个类对应 weapons.yml 里的一个 type
 │  ├─ match/room/   GameRoom 状态机与 RoomManager（世界复制 / 回收）
 │  ├─ match/sengoku/  战国 3v3 编排（SengokuSession、箭楼 / 击破器 / 跳跃台 / 小兵 / 能量）
 │  └─ command/      TaketoriCommand / MatchCommand / AdminMenu / SengokuCommand
@@ -651,6 +649,11 @@ docs/           细分文档（区域配置 / 模式判定 / 战国 3v3 / 武器
 METHOD-FLOWS.md 逐条对局的调用链与状态迁移
 build-offline.ps1  无网络环境的构建脚本
 ```
+
+上面树里最后三行是文档与脚本入口：`docs/` 下是 [区域配置](docs/regions.md)、
+[PVP / PVE 模式](docs/pvp-pve.md)、[战国 3v3](docs/sengoku-3v3.md)、
+[武器设计](docs/weapons.md)、[多世界](docs/multi-world.md)，发版说明在 [docs/releases/](docs/releases/)；
+[METHOD-FLOWS.md](METHOD-FLOWS.md) 逐条记对局的调用链与状态迁移，`build-offline.ps1` 是离线构建脚本。
 
 ---
 
