@@ -20,16 +20,16 @@ jobs:
     if: "!contains(github.event.head_commit.message, '[skip ci]')"
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up JDK 21
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: '21'
 
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6
 
       # gradle build = 编译 128 个源文件 + checkCorePurity（core 层禁 Bukkit/NMS）
       #              + checkParamKeys（技能参数键必须被 ConfigValidator 收录）
@@ -58,7 +58,7 @@ jobs:
           java -cp build/test-classes WorldScopeTest
 
       - name: Upload jar
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: TsukikageKassen
           path: build/libs/*.jar
@@ -77,12 +77,12 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: main
 
       - name: Download jar
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: TsukikageKassen
           path: dist
