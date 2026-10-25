@@ -5,6 +5,7 @@ import com.taketori.kassen.core.match.MatchRules;
 import com.taketori.kassen.core.match.TeamId;
 import com.taketori.kassen.paper.match.room.GameRoom;
 import org.bukkit.Location;
+import org.bukkit.block.Block;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
@@ -12,11 +13,15 @@ import org.bukkit.entity.Projectile;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
+import org.bukkit.event.block.Action;
+import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityDeathEvent;
 import org.bukkit.event.entity.PlayerDeathEvent;
+import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.player.PlayerRespawnEvent;
+import org.bukkit.inventory.EquipmentSlot;
 
 /**
  * 对局相关的事件监听：击杀计分、死亡旁观、复活、退出清理。
@@ -40,6 +45,55 @@ public final class MatchListener implements Listener {
 
     public MatchListener(TaketoriPlugin plugin) {
         this.plugin = plugin;
+    }
+
+    /**
+     * 拆包交互：右键包点拉杆 = 拆一下。
+     *
+     * <p>用 {@code ignoreCancelled = false} 是必须的：拉杆本身就是可交互方块，
+     * 别的插件（保护插件、菜单插件）完全可能把事件取消掉，取消之后玩家点它照样没有反应——
+     * 但这个方块是插件自己放的目标物，取消与否都得算数。</p>
+     *
+     * <p>左键也吞掉：原版左键打拉杆会把它打掉，包点一消失这局就没有目标了。</p>
+     */
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = false)
+    public void onBombInteract(PlayerInteractEvent event) {
+        if (event.getAction() != Action.RIGHT_CLICK_BLOCK && event.getAction() != Action.LEFT_CLICK_BLOCK) {
+            return;
+        }
+        Block clicked = event.getClickedBlock();
+        if (clicked == null) {
+            return;
+        }
+        Player player = event.getPlayer();
+        GameRoom room = plugin.rooms().roomOf(player);
+        if (room == null) {
+            return;
+        }
+        BombObjective bomb = room.bomb();
+        if (bomb == null || !bomb.isBombBlock(clicked)) {
+            return;
+        }
+        event.setCancelled(true);
+        // 只认主手的右键：副手右键会连着触发两次，进度会翻倍
+        if (event.getAction() == Action.RIGHT_CLICK_BLOCK
+                && event.getHand() == EquipmentSlot.HAND
+                && bomb.click(player) == BombObjective.ClickResult.DEFUSED) {
+            room.finish(TeamId.RED);
+        }
+    }
+
+    /** 包点方块禁止被挖：被挖掉就等于把这一局的获胜条件从地图上删了。 */
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onBombBreak(BlockBreakEvent event) {
+        GameRoom room = plugin.rooms().roomOf(event.getPlayer());
+        if (room == null) {
+            return;
+        }
+        BombObjective bomb = room.bomb();
+        if (bomb != null && bomb.isBombBlock(event.getBlock())) {
+            event.setCancelled(true);
+        }
     }
 
     /** 月人（普通/精英，任意实体类型）被玩家击杀 → 按实体所属房间计分（归属在刷怪器，天然按房间隔离）。 */

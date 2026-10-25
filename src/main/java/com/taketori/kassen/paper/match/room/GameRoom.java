@@ -8,6 +8,7 @@ import com.taketori.kassen.core.worlds.WorldScope;
 import com.taketori.kassen.paper.match.ArenaDef;
 import com.taketori.kassen.paper.match.BaseMarker;
 import com.taketori.kassen.paper.match.BaseCaptureManager;
+import com.taketori.kassen.paper.match.BombObjective;
 import com.taketori.kassen.paper.match.CuboidRegion;
 import com.taketori.kassen.paper.match.LootSpawner;
 import com.taketori.kassen.paper.match.MatchScoreboard;
@@ -101,7 +102,17 @@ public final class GameRoom {
      */
     private boolean sengoku;
     private MatchRules rules = MatchRules.defaults();
-
+    /**
+     * 防守方（蓝）目标分：与进攻方分开算。
+     *
+     * <p>CS 式攻防本来就该不对称——进攻方既要抢分又要拆包，防守方只要拖时间，
+     * 两边同分同速只会让进攻方永远差一步。</p>
+     */
+    private int blueScoreToWin = 600;
+    /** 进攻方（红）得分折算系数（0.6667 = 击杀/占点所得分打七折）。 */
+    private double attackerMultiplier = 0.6667D;
+    /** 本局的包点；场地没设包点时为 null（这局照旧只按分数判胜负）。 */
+    private BombObjective bomb;
     /** WAITING/STARTING 阶段的中立等待者（开局分队后清空，参与者转由 teams 记录）。 */
     private final Set<UUID> waiting = ConcurrentHashMap.newKeySet();
     /** 本房对局中由插件施加过 Saturation 的玩家：收尾只清这里记过的，不动其他来源的效果。 */
@@ -446,6 +457,9 @@ public final class GameRoom {
                 Math.max(0.0D, cfg.getDouble("combat.minion-kill-heal", 0.0D)),
                 pve,
                 cfg.getString("combat.friendly-fire-protection", "auto"));
+        blueScoreToWin = Math.max(1, cfg.getInt("match.defender-score-to-win", 600));
+        attackerMultiplier = Math.max(0.0D, Math.min(10.0D,
+                cfg.getDouble("match.attacker-score-multiplier", 0.6667D)));
     }
 
     public MatchRules rules() {
@@ -1096,22 +1110,53 @@ public final class GameRoom {
         if (phase != Phase.PLAYING || team == null) {
             return;
         }
-        teamScores.merge(team, amount, Integer::sum);
+        int awarded = applyAttackerMultiplier(team, amount);
+        teamScores.merge(team, awarded, Integer::sum);
         if (scorer != null) {
-            playerScores.merge(scorer, amount, Integer::sum);
+            playerScores.merge(scorer, awarded, Integer::sum);
             playerNames.put(scorer, scorerName == null ? "?" : scorerName);
             lastScorer = scorer;
             lastScoreReason = reason;
-            lastScoreAmount = amount;
+            lastScoreAmount = awarded;
         }
         if (plugin.config().debug()) {
             plugin.getLogger().info(String.format("[room %s] %s +%d（%s）→ 总分 %d:%d",
-                    id(), team.display(), amount, reason, teamScore(TeamId.RED), teamScore(TeamId.BLUE)));
+                    id(), team.display(), awarded, reason, teamScore(TeamId.RED), teamScore(TeamId.BLUE)));
         }
         board.updateAll();
-        if (teamScore(team) >= rules().scoreToWin()) {
+        if (teamScore(team) >= scoreTargetOf(team)) {
             finish(team);
         }
+    }
+
+    /**
+     * 进攻方（红）的得分折算。
+     *
+     * <p>只在纯 PVP 里生效：PVE 只有一队、战国从不走 addScore，
+     * 两者都不该被这个系数悄悄改分。折算后仍不足 1 分时按 1 分算，
+     * 否则把系数调到很低就会出现「杀了人却不加分」。</p>
+     */
+    private int applyAttackerMultiplier(TeamId team, int amount) {
+        if (team == TeamId.RED && !isPve() && !isSengoku()) {
+            int scaled = (int) Math.round(amount * attackerMultiplier);
+            return amount > 0 && scaled <= 0 ? 1 : scaled;
+        }
+        return amount;
+    }
+
+    /**
+     * 某一队的目标分。
+     *
+     * <p>纯 PVP 里蓝队（防守）用 {@code match.defender-score-to-win}，
+     * 红队（进攻）与 PVE 的目标分仍取 {@code match.score-to-win}。</p>
+     */
+    public int scoreTargetOf(TeamId team) {
+        return team == TeamId.BLUE && !isPve() ? blueScoreToWin : rules().scoreToWin();
+    }
+
+    /** 本局包点；场地没设包点（或对局还没开始）时为 null。 */
+    public BombObjective bomb() {
+        return bomb;
     }
 
     /** 本局得分最高的玩家（用于结算播报）。 */
@@ -1502,6 +1547,22 @@ public final class GameRoom {
         }
         board.updateAll();
 
+        // 包点：纯 PVP 才埋。PVE 只有一队（没人拆也没人守），战国凭击破天守阁定胜负，
+        // 两边塞进来都只会多个永远点不动的拉杆。
+        if (!isSengoku() && !isPve()) {
+            int needClicks = plugin.config().bombClicks();
+            bomb = new BombObjective(plugin, this, needClicks, plugin.config().bombResetSeconds());
+            if (bomb.place()) {
+                broadcast("<gold><bold>包已埋好！</bold> <gray>防守方（蓝）守住拉杆，"
+                        + "进攻方（红）连点 <white>" + needClicks
+                        + "</white> 下拆包即可获胜；中断会复位，队友可以接力。");
+            } else {
+                bomb = null;
+                broadcast("<yellow>本场地未设置包点（<white>/taketori arena setbomb</white>），"
+                        + "本局只按分数判胜负。");
+            }
+        }
+
         // 开局播报按模式分流：战国模式不看积分、也没有基地保护期，
         // 沿用 PVP 的"先到 X 分获胜"会直接把玩家引到错误的目标上。
         if (isSengoku()) {
@@ -1513,8 +1574,15 @@ public final class GameRoom {
                     + "占领后拿大将击破器攻陷敌方天守阁即可赢下本小局。");
             return;
         }
-        broadcast("<gold><bold>对局开始！</bold></gold> <gray>先到 <white>" + rules().scoreToWin()
-                + "</white> 分获胜，时限 <white>" + (rules().timeLimitSeconds() / 60) + "</white> 分钟。");
+        if (isPve()) {
+            broadcast("<gold><bold>对局开始！</bold></gold> <gray>先到 <white>" + scoreTargetOf(TeamId.RED)
+                    + "</white> 分，时限 <white>" + (rules().timeLimitSeconds() / 60) + "</white> 分钟。");
+        } else {
+            broadcast("<gold><bold>对局开始！</bold></gold> <gray>进攻方（<red>红</red>）到 <white>"
+                    + scoreTargetOf(TeamId.RED) + "</white> 分或拆包成功即胜；防守方（<blue>蓝</blue>）到 <white>"
+                    + scoreTargetOf(TeamId.BLUE) + "</white> 分获胜，撑满 <white>"
+                    + (rules().timeLimitSeconds() / 60) + "</white> 分钟同样获胜。");
+        }
         if (isPve()) {
             broadcast("<aqua>PVE 模式</aqua> <gray>所有人同一队，击杀月人得分：<white>+"
                     + rules().minionKillScore() + "</white> / 只；<gray>玩家之间不会互相造成伤害。");
@@ -1527,6 +1595,15 @@ public final class GameRoom {
             long delay = (long) rules().baseCaptureDelaySeconds();
             if (delay > 0L) {
                 broadcast("<gray>基地保护期 <white>" + delay + "</white> 秒，期间无法占点。");
+            }
+            if (attackerMultiplier < 0.999D) {
+                broadcast("<gray>进攻方（红）得分按 <white>" + Math.round(attackerMultiplier * 100.0D)
+                        + "%</white> 结算：击杀玩家 <white>+"
+                        + applyAttackerMultiplier(TeamId.RED, rules().playerKillScore())
+                        + "</white> / 击杀月人 <white>+"
+                        + applyAttackerMultiplier(TeamId.RED, rules().minionKillScore())
+                        + "</white> / 拆除基地 <white>+"
+                        + applyAttackerMultiplier(TeamId.RED, rules().baseCaptureScore()) + "</white>");
             }
             if (!red || !blue) {
                 TeamId empty = red ? TeamId.BLUE : TeamId.RED;
@@ -1595,6 +1672,9 @@ public final class GameRoom {
                     return;
                 }
                 refreshSaturation();
+                if (bomb != null) {
+                    bomb.tick();
+                }
                 // 掉线缓冲（借鉴 BedWars2020 的 rejoin-time）：缺人宽限期内等补位，
                 // 超时仍无人补位 → 缺人队判负，不再让剩余玩家打着注定失衡的垃圾局
                 if (!isPve()) {
@@ -1625,12 +1705,16 @@ public final class GameRoom {
                 // 而它从不 addScore、积分恒 0-0——一旦管理员把单局时限配到 ≥ 这个通用时限，
                 // 整场会在中途被按 0-0 平局收掉。小局自己的超时判定在 SengokuSession 里。
                 if (!isSengoku() && remainingMillis() <= 0L) {
-                    int redScore = teamScore(TeamId.RED);
-                    int blueScore = teamScore(TeamId.BLUE);
-                    if (redScore == blueScore) {
+                    if (isPve()) {
+                        // PVE 是刷分挑战：时间到就是没达标，不判胜
                         finish(null);
                     } else {
-                        finish(redScore > blueScore ? TeamId.RED : TeamId.BLUE);
+                        // 纯 PVP 套 CS 规则：时限一到即防守方（蓝）守包成功。
+                        // 蓝队已经空了的极端情况（判负流程漏掉）还得有结果，按平局收。
+                        boolean blueEmpty = teamPlayers(TeamId.BLUE).isEmpty();
+                        broadcast("<yellow><bold>时间到！</bold></yellow> <gray>防守方成功守住包点，"
+                                + "<blue><bold>蓝队</bold></color> 获胜。");
+                        finish(blueEmpty ? null : TeamId.BLUE);
                     }
                 }
             }
@@ -1746,6 +1830,10 @@ public final class GameRoom {
         loot.stop();
         baseCapture.stop();
         baseMarker.stop();
+        if (bomb != null) {
+            bomb.restore();
+            bomb = null;
+        }
         clearSkillProjectiles();
         clearDroppedItems();
         clearSummons();
@@ -2165,7 +2253,14 @@ public final class GameRoom {
             // 结算返还开局前备份的背包（先还再送大厅，避免回大厅时还穿着对局装备）
             restoreInventory(uuid);
             if (returnToLobby) {
-                plugin.lobby().sendToLobby(player);
+                // 回程落点：默认送回进房前所在的位置（多世界服务器上玩家可能从资源世界被拽进来）；
+                // 关掉 lobby.return-to-entry、或原位置的世界已在对局期间被卸载时，回落到大厅出生点。
+                Location entry = plugin.config().lobbyReturnToEntry() ? manager.entryPointOf(uuid) : null;
+                if (entry != null) {
+                    plugin.lobby().sendToLocation(player, entry);
+                } else {
+                    plugin.lobby().sendToLobby(player);
+                }
             }
         }
         for (UUID uuid : members) {

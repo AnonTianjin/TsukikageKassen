@@ -93,6 +93,41 @@ public final class RoomManager {
     private final Map<String, GameRoom> rooms = new ConcurrentHashMap<>();
     /** 玩家 → 房间：全工程唯一权威归属映射。 */
     private final Map<UUID, GameRoom> playerRooms = new ConcurrentHashMap<>();
+    /**
+     * 进房前的位置：结算时按 {@code lobby.return-to-entry} 把人送回这里。
+     *
+     * <p>只在玩家「还没在任何房间里」时记录。等待区换房（A 房→B 房）不覆盖，
+     * 因为回程落点应当是最初离开的那个位置，而不是上一个房间的等待区。
+     * 进房前的世界在对局期间被卸载时，读取方会检查世界是否存在并回落到大厅。</p>
+     */
+    private final Map<UUID, Location> entryPoints = new ConcurrentHashMap<>();
+
+    /**
+     * 记下进房前的位置（只在玩家还没在任何房间里时记）。
+     *
+     * @param player 准备进房的玩家
+     */
+    private void rememberEntry(Player player) {
+        UUID id = player.getUniqueId();
+        if (!playerRooms.containsKey(id)) {
+            Location here = player.getLocation();
+            entryPoints.put(id, here.clone());
+        }
+    }
+
+    /**
+     * 取玩家进房前的位置。
+     *
+     * @param id 玩家 UUID
+     * @return 位置副本；没有记录、或记录的世界已被卸载时返回 {@code null}（调用方应回落到大厅）
+     */
+    public Location entryPointOf(UUID id) {
+        Location saved = entryPoints.get(id);
+        if (saved == null || saved.getWorld() == null) {
+            return null;
+        }
+        return saved.clone();
+    }
     /** 房间创建序号（世界名 kassen_<序号>；启动时接续历史最大值，避免与待删除的旧文件夹冲突）。 */
     private final AtomicLong sequence = new AtomicLong();
     /**
@@ -790,6 +825,7 @@ public final class RoomManager {
         if (player == null) {
             return null;
         }
+        rememberEntry(player);
         GameRoom current = playerRooms.get(player.getUniqueId());
         if (current != null) {
             return current.isJoinable()
@@ -887,6 +923,7 @@ public final class RoomManager {
         if (player == null) {
             return new JoinResult(JoinOutcome.NOT_FOUND, null);
         }
+        rememberEntry(player);
         GameRoom target = rooms.get(roomId);
         if (target == null) {
             return new JoinResult(JoinOutcome.NOT_FOUND, null);

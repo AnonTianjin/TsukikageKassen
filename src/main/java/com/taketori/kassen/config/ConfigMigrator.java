@@ -16,7 +16,7 @@ import java.util.List;
 public final class ConfigMigrator {
 
     /** 当前配置结构版本；每次改动默认值或键名都要 +1，并在下面加一段迁移。 */
-    public static final int CURRENT_VERSION = 10;
+    public static final int CURRENT_VERSION = 11;
 
     private final TaketoriPlugin plugin;
 
@@ -207,6 +207,35 @@ public final class ConfigMigrator {
             }
             notes.add("room.rejoin-seconds: 新增 300（对局中掉线 5 分钟内重连回原房原队，0 = 关闭）"
                     + "；party.max-size: 新增 3（派对组队：整队同房、开局整组同队）");
+        }
+
+
+        if (version < 11) {
+            // v10 → v11：CS 式拆包攻防。新增包点段与两项攻防不对称参数。
+            // 这里刻意【不】改写 match.score-to-win：老服务器上那个值可能是服主自己调过的，
+            // 直接改成 500 会悄悄缩水对局节奏。进攻方目标分沿用原值，只新增键。
+            if (!config.isSet("match.defender-score-to-win")) {
+                config.set("match.defender-score-to-win", config.getInt("match.score-to-win", 600));
+            }
+            if (!config.isSet("match.attacker-score-multiplier")) {
+                config.set("match.attacker-score-multiplier", 1.0);
+            }
+            if (!config.isSet("bomb.defuse-clicks")) {
+                config.set("bomb.defuse-clicks", 10);
+            }
+            if (!config.isSet("bomb.reset-seconds")) {
+                config.set("bomb.reset-seconds", 7);
+            }
+            if (!config.isSet("lobby.return-to-entry")) {
+                config.set("lobby.return-to-entry", true);
+            }
+            notes.add("bomb: 新增包点段（defuse-clicks=10 / reset-seconds=7）"
+                    + "——PVP 开局在 /taketori arena setbomb 的位置埋一个拉杆，进攻方连点 10 下拆包获胜");
+            notes.add("match.defender-score-to-win / attacker-score-multiplier: 新增"
+                    + "（防守方目标分沿用你原来的 score-to-win，折算系数默认 1.0 = 不折算；"
+                    + "想要 CS 式不对称就把防守方调高、系数调到 0.6667）");
+            notes.add("lobby.return-to-entry: 新增 true（对局结束回到进房间前的位置；"
+                    + "写 false 则一律回大厅出生点）");
         }
 
 

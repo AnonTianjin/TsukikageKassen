@@ -7,7 +7,7 @@
 
 | 项 | 要求 |
 | --- | --- |
-| JDK | **21**（toolchain 已锁，装好即可） |
+| JDK | 21（toolchain 已锁，装好即可） |
 | IDE | 任意；IntelliJ IDEA 直接打开工程 |
 | 网络 | 首次 `gradlew build` 需联网拉 Paper API 与 JUnit（走 Maven Central / repo.papermc.io） |
 
@@ -22,14 +22,14 @@ pwsh -File build-offline.ps1
 ## 构建护栏（违反即构建失败）
 
 1. **core 层纯净**（`checkCorePurity`）：`core/` 包禁止引用
-   `org.bukkit` / `io.papermc` / `net.minecraft` / `craftbukkit`——版本相关逻辑
+   `org.bukkit` / `io.papermc` / `net.minecraft` / `craftbukkit`：版本相关逻辑
    一律下沉到 `paper/` 或 `version/` 包，这是「升级只改适配层」的可验证承诺；
 2. **参数键收录**（`checkParamKeys`）：技能实现读取的每个 `params` 键必须被
    `ConfigValidator` 收录，否则玩家改配置会静默失效。
 
 ## 测试
 
-- **离线断言测试**在 `tools/` 下，纯 core 逻辑可直接跑（CI 也在跑）：
+- 离线断言测试在 `tools/` 下，纯 core 逻辑可直接跑（CI 也在跑）：
   ```bash
   javac -encoding UTF-8 --release 21 -d build/test-classes \
     src/main/java/com/taketori/kassen/core/match/TeamId.java \

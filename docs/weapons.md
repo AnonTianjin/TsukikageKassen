@@ -28,19 +28,19 @@ weapons:
           # q：模式切换（mode_switch）/ 装备切换（equip_switch）
 ```
 
-- **属性名映射**：`attributes` 的键经 `VersionAdapter.attribute()` 解析
+- 属性名映射：`attributes` 的键经 `VersionAdapter.attribute()` 解析
   （`attack-damage` → `generic.attack_damage` 等），解析失败会被校验点名；
-- **`attack-speed` 与近战手感**：左键技能的结算频率由原版攻击冷却驱动，
+- `attack-speed` 与近战手感：左键技能的结算频率由原版攻击冷却驱动，
   `combat.melee-charge-gate`（默认 0.9）以下的蓄力保留原版轻击；
-- **`default-mode`**：写错（不存在于 `modes`）时 reload 报错。此前会静默回退
+- `default-mode`：写错（不存在于 `modes`）时 reload 报错。此前会静默回退
   武器级技能，1.6.1 起显式校验；
-- **冷却语义**：`cooldown` 单位秒，只有 `SkillResult.SUCCESS` 才进冷却——
+- 冷却语义：`cooldown` 单位秒，只有 `SkillResult.SUCCESS` 才进冷却：
   无目标 / 被门控拦下 / 抛异常都不扣。冷却展示见 `feedback.cooldown-display`。
 
 ## 二、技能类型与参数键全表
 
-参数键的权威来源是 `ConfigValidator.ALLOWED_PARAMS`——**写在 yml 里但没收录的键
-会在启动/reload 时被逐条点名**（这是护栏：防止配置键静默失效）。
+参数键的权威来源是 `ConfigValidator.ALLOWED_PARAMS`：写在 yml 里但没收录的键
+会在启动/reload 时被逐条点名（这是护栏：防止配置键静默失效）。
 下表按类型列出全部合法键，`display / particle / sound / hit-particle / hit-sound /
 miss-sound / slow-type` 等表现键各类型通用，不再重复列出。
 
@@ -55,7 +55,7 @@ miss-sound / slow-type` 等表现键各类型通用，不再重复列出。
 | `mark_apply` 易伤标记 | `damage` `radius` `angle` `mark-bonus` `mark-ticks` `invisible-ticks` `slow-duration` `slow-amplifier` |
 | `armor_break` 破甲 | `damage` `radius` `knockback` `launch` `min-falloff` `armor-pierce` `debuff-ticks` `debuff-stacks` `slow-duration` `slow-amplifier` |
 
-连击（`melee_smash` 的 `combo-*`）：**命中目标才叠层**（1.6.1 起，空挥不计数），
+连击（`melee_smash` 的 `combo-*`）：命中目标才叠层（1.6.1 起，空挥不计数），
 `combo-window` 是层间最大间隔 tick，`combo-cap` 是伤害上限（0 = 不封顶）。
 
 ### 远程与弹体
@@ -113,14 +113,14 @@ homing 目标过滤同口径（统一目标过滤）。无箭射击（夕月）�
 
 | 键 | 语义 |
 | --- | --- |
-| `mark-bonus` / `mark-ticks` | 易伤标记：目标受到的所有伤害 ×(1+mark-bonus)。**覆盖语义**，不叠加 |
+| `mark-bonus` / `mark-ticks` | 易伤标记：目标受到的所有伤害 ×(1+mark-bonus)。覆盖语义，不叠加 |
 | `armor-pierce` / `debuff-*` | 破甲：独立于易伤标记的第二乘区，可共存；硬上限 0.30 |
 | `echo-bonus` | 兑现倍率：目标带标记 / 破甲 / 减速 / 冻结任一时伤害 ×echo-bonus；≤1.0 等同关闭 |
 | `fall-immunity-ticks` | 免摔窗口（覆盖式写入，`CombatStates` 惰性过期） |
 | `freeze-ticks` | 定身（SLOWNESS 拉满 + 负跳跃，纯药水实现） |
 | `min-falloff` | 距离衰减下限（0.6 = 边缘目标至少吃 60% 伤害） |
 
-伤害公式与穿甲基准见下节；`echo-bonus` 与 `mark-bonus` 是**独立乘区相乘**，
+伤害公式与穿甲基准见下节；`echo-bonus` 与 `mark-bonus` 是独立乘区相乘，
 这是设计行为不是双重结算，不要"修"。
 
 ## 四、数值基准
@@ -146,8 +146,8 @@ homing 目标过滤同口径（统一目标过滤）。无箭射击（夕月）�
 排查工具：`/taketori doctor`（识别、绑定、名字解析一次性报告）、
 `/taketori keys`（按键是否到达服务端）、`/taketori debug on`（输入与技能派发日志）。
 游戏中改武器数值可用 `/taketori editor`（菜单编辑，保存自动 reload）或直接改
-weapons.yml 后 `/taketori reload`——对局进行中 reload 会结束所有房间，注意时机。
+weapons.yml 后 `/taketori reload`：对局进行中 reload 会结束所有房间，注意时机。
 
-模板升级：插件**不会覆盖**你的 weapons.yml；模板落后时控制台提示
+模板升级：插件不会覆盖你的 weapons.yml；模板落后时控制台提示
 `config-version`，同步方式：备份并删除该文件 → `/taketori reload` 重新生成 →
 回填自己的数值。

@@ -1,6 +1,6 @@
 # 新增方法流程详解（对局内退出 GUI / 鹦鹉螺壳）
 
-> 本文档描述**工作区当前（已修复后）代码**的执行流程。所有结论均基于实际读取的源码与
+> 本文档描述工作区当前（已修复后）代码的执行流程。所有结论均基于实际读取的源码与
 > `git diff` 判定，每个方法都标注了【本次新增】/【本次改动】/【既有】。
 > 线程标注依据 `paper/scheduler/SchedulerAdapter.java`：`runTimerTask`/`runLater`/`run`
 > 均走 Bukkit 主线程（`Bukkit.getScheduler().runTask*`）。事件回调本身就在主线程。
@@ -11,9 +11,9 @@
 
 本特性新增的是一套「对局内玩家主动离局 + 鹦鹉螺壳 GUI」机制。判定方法：
 
-- **【本次新增】**：git diff 中出现且本次引入的类或方法/字段，或既有方法里新增并改变语义的分支。
-- **【本次改动】**：既有方法被本特性改动（新增分支、改可见性、改判定）。
-- **【既有】**：git diff 中未出现、但被本特性调用的方法（如 `RoomManager.leaveForRejoin`、
+- 【本次新增】：git diff 中出现且本次引入的类或方法/字段，或既有方法里新增并改变语义的分支。
+- 【本次改动】：既有方法被本特性改动（新增分支、改可见性、改判定）。
+- 【既有】：git diff 中未出现、但被本特性调用的方法（如 `RoomManager.leaveForRejoin`、
   `GameRoom.quitMatch`/`quitMatchKeepEntry`/`tick`/`endCleanup`、`MatchScoreboard.update`、
   `ItemFactory.read`、`RoomManager.leave`、`RoomManager.stashOfflineBackup` 单参版等）。
   即使被本特性调用，也按【既有】标注，不写成新增。
@@ -25,14 +25,14 @@
 | `paper/item/RoomShell.java`（整文件） | 【本次新增】 | 壳的 create / isRoomShell / hasShell / give / removeExisting / SLOT_HOTBAR |
 | `paper/listener/RoomShellListener.java`（整文件） | 【本次新增】 | 右键开 GUI、防丢弃、防移动、防 F 键换副手、死亡保留 |
 | `paper/match/room/RoomShellMenu.java`（整文件） | 【本次新增】 | 9×3 双按钮 GUI、二次确认、刷新任务、点击分发 |
-| `paper/match/room/RoomManager.java:919`、`937-940` | 【本次新增 行】 | joinRoom 补位/等待两路补发壳 |
-| `paper/match/room/GameRoom.java:1276` | 【本次新增 行】 | beginMatch 补发壳 |
+| `paper/match/room/RoomManager.java:919`、`937-940` | 【本次新增行】 | joinRoom 补位/等待两路补发壳 |
+| `paper/match/room/GameRoom.java:1276` | 【本次新增行】 | beginMatch 补发壳 |
 | `paper/match/room/GameRoom.java:729-757` | 【本次新增】 | surrenderStatus + SurrenderStatus record |
 | `paper/match/room/GameRoom.java:1318-1323`、`1389` | 【本次改动】 | exitCageState 改 public；characterIdOf 改 public |
 | `paper/match/room/GameRoom.java:548-582` | 【本次改动】 | onlineParticipantCount 排除重连占位 |
-| `paper/lobby/LobbyManager.java:505-560` | 【本次新增 方法】 | leaveMatch |
+| `paper/lobby/LobbyManager.java:505-560` | 【本次新增方法】 | leaveMatch |
 | `paper/match/RejoinManager.java:96-118`、`135-160`、`167-174` | 【本次改动】 | tryRejoin 重封存+补发；purgeExpired 双参兜底；hasSession |
-| `paper/match/MatchScoreboard.java:154-182` | 【本次新增 行/方法】 | surrenderLine 投降表决行 |
+| `paper/match/MatchScoreboard.java:154-182` | 【本次新增行/方法】 | surrenderLine 投降表决行 |
 | `paper/item/PDCKeys.java:29-36`、`108`、`188-191` | 【本次新增】 | roomShell() 标记键 |
 | `paper/config/ConfigManager.java:972-1009` | 【本次新增】 | roomShell* 读取器 |
 | `paper/match/room/GameRoom.java:1713` 一带的 surrender 受理 | 【既有】 | surrender 方法仅 PLAYING 受理（非本次改动） |
@@ -96,8 +96,8 @@ flowchart TD
 
 ### 2.1 `RoomShell`（paper/item/RoomShell.java）
 
-#### 2.1.1 `RoomShell(plugin)` 构造器 — `:43`
-1. 签名与位置：`public RoomShell(TaketoriPlugin plugin)` — `paper/item/RoomShell.java:43`
+#### 2.1.1 `RoomShell(plugin)` 构造器，`:43`
+1. 签名与位置：`public RoomShell(TaketoriPlugin plugin)`，`paper/item/RoomShell.java:43`
 2. 类型：【本次新增】类
 3. 调用者：`TaketoriPlugin.roomShell()` 懒加载创建（`:1003-1009`，见 TaketoriPlugin.java diff）
 4. 逐步流程：保存 plugin 引用。
@@ -105,10 +105,10 @@ flowchart TD
 6. 副作用：无（仅存引用）。
 7. 线程：主线程。
 
-#### 2.1.2 `SLOT_HOTBAR` 常量 — `:39`
+#### 2.1.2 `SLOT_HOTBAR` 常量，`:39`
 - 类型：【本次新增】常量。壳落点 = 快捷栏第 9 格（index 8）。
 
-#### 2.1.3 `enabled()` — `:47`
+#### 2.1.3 `enabled()`，`:47`
 1. 位置：`paper/item/RoomShell.java:47`
 2. 类型：【本次新增】
 3. 调用者：`give`（`RoomShell.java:102`）
@@ -117,7 +117,7 @@ flowchart TD
 6. 副作用：无。
 7. 线程：主线程。
 
-#### 2.1.4 `create()` — `:52`
+#### 2.1.4 `create()`，`:52`
 1. 位置：`paper/item/RoomShell.java:52`
 2. 类型：【本次新增】
 3. 调用者：`give`（`RoomShell.java:112`）
@@ -129,16 +129,16 @@ flowchart TD
 6. 副作用：新造一个带 PDC 标记的壳 ItemStack（不改玩家背包）。
 7. 线程：主线程。
 
-#### 2.1.5 `isRoomShell(ItemStack)` — `:67`
+#### 2.1.5 `isRoomShell(ItemStack)`，`:67`
 1. 位置：`paper/item/RoomShell.java:67`
 2. 类型：【本次新增】
 3. 调用者：几乎所有监听器与 `hasShell`、`give`、`removeExisting`。
-4. 流程：null/AIR/无 meta 返回 false；读 PDC `roomShell()` BYTE，非 null 即识别（**只认 PDC**，不认名字/Lore）。
+4. 流程：null/AIR/无 meta 返回 false；读 PDC `roomShell()` BYTE，非 null 即识别（只认 PDC，不认名字/Lore）。
 5. 早退：`stack == null`、`getType()==AIR`、`!hasItemMeta()`、`meta == null` → false。
 6. 副作用：无。
 7. 线程：主线程。
 
-#### 2.1.6 `hasShell(Player)` — `:80`
+#### 2.1.6 `hasShell(Player)`，`:80`
 1. 位置：`paper/item/RoomShell.java:80`
 2. 类型：【本次新增】
 3. 调用者：`RoomShellListener.onDeath`（`:175`）
@@ -147,7 +147,7 @@ flowchart TD
 6. 副作用：无。
 7. 线程：主线程。
 
-#### 2.1.7 `give(Player)` — `:101`
+#### 2.1.7 `give(Player)`，`:101`
 1. 位置：`paper/item/RoomShell.java:101`
 2. 类型：【本次新增】
 3. 调用者：发壳四处（joinRoom 等待路 `:940`、joinRoom 补位路 `:919`、beginMatch `:1276`、tryRejoin `:112`）
@@ -157,11 +157,11 @@ flowchart TD
    - 否则 `removeExisting(inv)` 清掉背包里任何旧壳（`:111`）；
    - `inv.setItem(SLOT_HOTBAR, create())`（`:112`）。
 5. 早退/边界：见上 enable/在线/已存在三个分支。
-6. 副作用：**写玩家背包第 9 格**（`backups` 由 stash 流程独立管理，此处不动）。
+6. 副作用：写玩家背包第 9 格（`backups` 由 stash 流程独立管理，此处不动）。
    关键约定：调用点都保证在 `stashAndClearInventory` 之后调用，避免被 `inv.clear()` 抹掉。
 7. 线程：主线程。
 
-#### 2.1.8 `removeExisting(PlayerInventory)` — `:117`
+#### 2.1.8 `removeExisting(PlayerInventory)`，`:117`
 1. 位置：`paper/item/RoomShell.java:117`
 2. 类型：【本次新增】
 3. 调用者：`give`（`:111`）
@@ -174,7 +174,7 @@ flowchart TD
 
 ### 2.2 `RoomShellListener`（paper/listener/RoomShellListener.java）
 
-#### 2.2.1 `onInteract(PlayerInteractEvent)` — `:48`
+#### 2.2.1 `onInteract(PlayerInteractEvent)`，`:48`
 1. 位置：`paper/listener/RoomShellListener.java:48`
 2. 类型：【本次新增】
 3. 调用者：Bukkit 事件 `PlayerInteractEvent`（右键）
@@ -189,7 +189,7 @@ flowchart TD
 6. 副作用：取消原版交互；打开 GUI。
 7. 线程：主线程。
 
-#### 2.2.2 `onDrop(PlayerDropItemEvent)` — `:73`
+#### 2.2.2 `onDrop(PlayerDropItemEvent)`，`:73`
 1. 位置：`paper/listener/RoomShellListener.java:73`
 2. 类型：【本次新增】
 3. 调用者：Bukkit `PlayerDropItemEvent`
@@ -198,7 +198,7 @@ flowchart TD
 6. 副作用：取消丢弃。
 7. 线程：主线程。
 
-#### 2.2.3 `onInventoryClick(InventoryClickEvent)` — `:84`
+#### 2.2.3 `onInventoryClick(InventoryClickEvent)`，`:84`
 1. 位置：`paper/listener/RoomShellListener.java:84`
 2. 类型：【本次新增】
 3. 调用者：Bukkit `InventoryClickEvent`
@@ -206,12 +206,12 @@ flowchart TD
    - 非 Player 点击 return（`:86-88`）；
    - 判断是否在自己背包（TopInventory holder 是 PlayerInventory，`:90-91`）；
    - 容器场景：涉及壳（`shellInvolved`）则取消并提示 `room-shell.locked`（`:92-96`）；
-   - 自己背包场景：涉及壳也取消（`:97-99`）；此分支**允许开自己背包时点击其它物品**，仅锁壳本身。
+   - 自己背包场景：涉及壳也取消（`:97-99`）；此分支允许开自己背包时点击其它物品，仅锁壳本身。
 5. 早退：非玩家、不涉及壳。
 6. 副作用：取消移动/入容器。
 7. 线程：主线程。
 
-#### 2.2.4 `shellInvolved(InventoryClickEvent, Player)` — `:103`
+#### 2.2.4 `shellInvolved(InventoryClickEvent, Player)`，`:103`
 1. 位置：`paper/listener/RoomShellListener.java:103`
 2. 类型：【本次新增】
 3. 调用者：`onInventoryClick`（`:104,108`）
@@ -220,7 +220,7 @@ flowchart TD
 6. 副作用：无。
 7. 线程：主线程。
 
-#### 2.2.5 `onInventoryDrag(InventoryDragEvent)` — `:125`
+#### 2.2.5 `onInventoryDrag(InventoryDragEvent)`，`:125`
 1. 位置：`paper/listener/RoomShellListener.java:125`
 2. 类型：【本次新增】
 3. 调用者：Bukkit `InventoryDragEvent`
@@ -228,9 +228,9 @@ flowchart TD
 5. 早退：自己背包内拖拽。
 6. 副作用：取消拖入容器。
 7. 线程：主线程。
-> 防护漏洞覆盖（REVIEW 点 E）：本类覆盖了 DROP、InventoryClick（当前格/光标/HOTBAR_SWAP/HOTBAR_MOVE_AND_READD）、InventoryDrag、F 键 `PlayerSwapHandItemsEvent` 五条。未单独覆盖 SWAP_WITH_CURSOR/NUMBER_KEY 的「入容器」——但 NUMBER_KEY 属 Hotbar 交换，已在 `shellInvolved` 的 `HOTBAR_SWAP` 路径拦截；SWAP_WITH_CURSOR 在容器场景被「涉及壳即取消」覆盖。
+> 防护漏洞覆盖（REVIEW 点 E）：本类覆盖了 DROP、InventoryClick（当前格/光标/HOTBAR_SWAP/HOTBAR_MOVE_AND_READD）、InventoryDrag、F 键 `PlayerSwapHandItemsEvent` 五条。未单独覆盖 SWAP_WITH_CURSOR/NUMBER_KEY 的「入容器」：但 NUMBER_KEY 属 Hotbar 交换，已在 `shellInvolved` 的 `HOTBAR_SWAP` 路径拦截；SWAP_WITH_CURSOR 在容器场景被「涉及壳即取消」覆盖。
 
-#### 2.2.6 `onSwapHands(PlayerSwapHandItemsEvent)` — `:149`
+#### 2.2.6 `onSwapHands(PlayerSwapHandItemsEvent)`，`:149`
 1. 位置：`paper/listener/RoomShellListener.java:149`
 2. 类型：【本次新增】（修复：拦截 F 键把壳换到副手）
 3. 调用者：Bukkit `PlayerSwapHandItemsEvent`
@@ -239,7 +239,7 @@ flowchart TD
 6. 副作用：取消副手交换。
 7. 线程：主线程。
 
-#### 2.2.7 `onDeath(PlayerDeathEvent)` — `:167`
+#### 2.2.7 `onDeath(PlayerDeathEvent)`，`:167`
 1. 位置：`paper/listener/RoomShellListener.java:167`
 2. 类型：【本次新增】
 3. 调用者：Bukkit `PlayerDeathEvent`
@@ -255,7 +255,7 @@ flowchart TD
 
 ### 2.3 `RoomShellMenu`（paper/match/room/RoomShellMenu.java）
 
-#### 2.3.1 `open(Player)` — `:85`
+#### 2.3.1 `open(Player)`，`:85`
 1. 位置：`paper/match/room/RoomShellMenu.java:85`
 2. 类型：【本次新增】
 3. 调用者：`RoomShellListener.onInteract`（`:68`）
@@ -268,13 +268,13 @@ flowchart TD
    - 启动 `plugin.scheduler().runTimerTask(刷新闭包, 20, 20)`（`:96-109`）：闭包每秒检查 viewer 是否仍在线、是否还在看本 session（`isViewing`），否则 `cancel`；超时则清确认态；再 `render`。
 5. 早退：null/离线。
 6. 副作用：创建 InventoryHolder 会话、打开界面、起主线程周期刷新任务。
-7. 线程：open 在主线程；刷新任务由 `runTimerTask` 走**主线程**（`SchedulerAdapter.java:63-66`）。
+7. 线程：open 在主线程；刷新任务由 `runTimerTask` 走主线程（`SchedulerAdapter.java:63-66`）。
 
-#### 2.3.2 `isViewing` / `cancel` — `:112` / `:117`
+#### 2.3.2 `isViewing` / `cancel`，`:112` / `:117`
 - `isViewing`（`:112`）：比较打开界面 TopInventory 的 holder 是否为同一 Session。
-- `cancel`（`:117`）：`refreshTask.cancel()` 并置 null。**关闭界面即取消**（InventoryCloseEvent 虽未显式监听，但闭包每 tick 检测到非 viewing 即 cancel，REVIEW 点 F：refreshTask 一定被取消）。
+- `cancel`（`:117`）：`refreshTask.cancel()` 并置 null。关闭界面即取消（InventoryCloseEvent 虽未显式监听，但闭包每 tick 检测到非 viewing 即 cancel，REVIEW 点 F：refreshTask 一定被取消）。
 
-#### 2.3.3 `render(Session, Player)` — `:126`
+#### 2.3.3 `render(Session, Player)`，`:126`
 1. 位置：`paper/match/room/RoomShellMenu.java:126`
 2. 类型：【本次新增】
 3. 调用者：`open`（`:93`）、刷新任务（`:108`）、`onClick`（`:242`）
@@ -283,12 +283,12 @@ flowchart TD
 6. 副作用：重写界面内容（无持久状态）。
 7. 线程：主线程。
 
-#### 2.3.4 `leaveButton` / `surrenderButton` / `infoButton` — `:150` / `:178` / `:199`
+#### 2.3.4 `leaveButton` / `surrenderButton` / `infoButton`，`:150` / `:178` / `:199`
 - `leaveButton`（`:150`）：非 waiting 非 inMatch → BARRIER 不可用（`:151-156`）；确认态中 → RED_TERRACOTTA 确认（`:166-168`）；否则 LIME_DYE 初始（`:159-165`）。
-- `surrenderButton`（`:178`）：`room==null || team==null || phase != PLAYING` → GRAY_DYE 置灰（`:179-183`）；否则 RED_BANNER 并显示票进度（`:184-195`）。**CAGED 阶段置灰**，因 `GameRoom.surrender` 仅在 PLAYING 受理。
+- `surrenderButton`（`:178`）：`room==null || team==null || phase != PLAYING` → GRAY_DYE 置灰（`:179-183`）；否则 RED_BANNER 并显示票进度（`:184-195`）。CAGED 阶段置灰，因 `GameRoom.surrender` 仅在 PLAYING 受理。
 - `infoButton`（`:199`）：显示阶段 + 本队 + 票数（仅 inMatch）。
 
-#### 2.3.5 `onClick(InventoryClickEvent)` — `:224`
+#### 2.3.5 `onClick(InventoryClickEvent)`，`:224`
 1. 位置：`paper/match/room/RoomShellMenu.java:224`
 2. 类型：【本次新增】
 3. 调用者：Bukkit `InventoryClickEvent`
@@ -302,7 +302,7 @@ flowchart TD
 6. 副作用：分发点击。
 7. 线程：主线程。
 
-#### 2.3.6 `handleLeaveClick(Session, Player)` — `:246`
+#### 2.3.6 `handleLeaveClick(Session, Player)`，`:246`
 1. 位置：`paper/match/room/RoomShellMenu.java:246`
 2. 类型：【本次新增】
 3. 调用者：`onClick`（`:238`）
@@ -316,7 +316,7 @@ flowchart TD
 6. 副作用：写 session 确认时间戳；触发离局/退房。
 7. 线程：主线程。
 
-#### 2.3.7 `handleSurrenderClick(Player)` — `:276`
+#### 2.3.7 `handleSurrenderClick(Player)`，`:276`
 1. 位置：`paper/match/room/RoomShellMenu.java:276`
 2. 类型：【本次新增】
 3. 调用者：`onClick`（`:240`）
@@ -327,9 +327,9 @@ flowchart TD
 
 ---
 
-### 2.4 `LobbyManager.leaveMatch(Player)` — `:524`【本次新增 方法】
+### 2.4 `LobbyManager.leaveMatch(Player)` · `:524`【本次新增方法】
 
-1. 签名与位置：`public void leaveMatch(Player player)` — `paper/lobby/LobbyManager.java:524`
+1. 签名与位置：`public void leaveMatch(Player player)`，`paper/lobby/LobbyManager.java:524`
 2. 类型：【本次新增】（统一入口，供 GUI 与 `/taketori leave` 对局中分支调用）
 3. 调用者：
    - `RoomShellMenu.handleLeaveClick`（确认后，`:272`）
@@ -353,7 +353,7 @@ flowchart TD
 
 ### 2.5 `RejoinManager`（paper/match/RejoinManager.java）
 
-#### 2.5.1 `tryRejoin(Player)` — `:67`【改动】
+#### 2.5.1 `tryRejoin(Player)`，`:67`【改动】
 1. 位置：`paper/match/RejoinManager.java:67`
 2. 类型：【本次改动】（新增「还原后重封存 + 补发装备与壳」序列）
 3. 调用者：`PlayerListener.onJoin`（`:39`）
@@ -362,8 +362,8 @@ flowchart TD
    - `room = rooms().room(session.roomId())`，房间不存在/队伍不符/不在运行 → `quitMatch(id)` 释放并返回（`:81-89`）；
    - `attachAfterRejoin(player, room)` 绑定映射（`:91`）；
    - 传送回本队出生点（`:92-95`）；
-   - **还原**：`restoreInventoryIfAny(player)` + `restoreOfflineBackup(player)`（`:103-104`）；
-   - **重新封存**：`stashAndClearInventory(player)`（`:106`）；
+   - 还原：`restoreInventoryIfAny(player)` + `restoreOfflineBackup(player)`（`:103-104`）；
+   - 重新封存：`stashAndClearInventory(player)`（`:106`）；
    - 按角色 `giveCharacterWeapons`（`:107-110`）；
    - `roomShell().give(player)` 补壳（`:112`）；
    - `scoreboard().showTo`、`broadcastMessage("rejoin.back")`、提示 `rejoin.welcome`、返回 true（`:113-118`）。
@@ -371,7 +371,7 @@ flowchart TD
 6. 副作用：playerRooms 重绑、背包重封存+补发、壳补发、记分板、广播。
 7. 线程：主线程（在 onJoin MONITOR 事件内同步执行）。
 
-#### 2.5.2 `purgeExpired()` — `:135`【改动】
+#### 2.5.2 `purgeExpired()`，`:135`【改动】
 1. 位置：`paper/match/RejoinManager.java:135`
 2. 类型：【本次改动】（新增双参 `stashOfflineBackup` 兜底转移快照）
 3. 调用者：`GameRoom.tick`（既有，未在本 diff 改）
@@ -380,7 +380,7 @@ flowchart TD
 6. 副作用：sessions 清理、teams 条目释放、快照兜底入 offlineBackups。
 7. 线程：主线程（tick 在主线程）。
 
-#### 2.5.3 `hasSession(UUID)` — `:168`【本次新增】
+#### 2.5.3 `hasSession(UUID)`，`:168`【本次新增】
 1. 位置：`paper/match/RejoinManager.java:168`
 2. 类型：【本次新增】
 3. 调用者：`GameRoom.onlineParticipantCount`（`:562` 一带）
@@ -395,16 +395,16 @@ flowchart TD
 
 ### 2.6 `GameRoom`（paper/match/room/GameRoom.java）
 
-#### 2.6.1 `onlineParticipantCount()` — `:548`【改动】
+#### 2.6.1 `onlineParticipantCount()`，`:548`【改动】
 1. 位置：`paper/match/room/GameRoom.java:548`
 2. 类型：【本次改动】（排除 `rejoin.hasSession(uuid)` 的离局占位）
 3. 调用者：`abortEmpty`/空房回收（既有，未改动）
-4. 流程：`all = waiting ∪ teams.keySet()`；遍历每个 uuid：`player==null || !online` 跳过；**`rejoin.hasSession(uuid)` 则跳过**（已离局占位不算在场）（`:560-568`）；否则 count++。
+4. 流程：`all = waiting ∪ teams.keySet()`；遍历每个 uuid：`player==null || !online` 跳过；`rejoin.hasSession(uuid)` 则跳过（已离局占位不算在场）（`:560-568`）；否则 count++。
 5. 早退：离线/有重连会话。
 6. 副作用：无（只读计数）。
 7. 线程：主线程。
 
-#### 2.6.2 `surrenderStatus(TeamId)` — `:729`【本次新增】
+#### 2.6.2 `surrenderStatus(TeamId)`，`:729`【本次新增】
 1. 位置：`paper/match/room/GameRoom.java:729`
 2. 类型：【本次新增】+ `SurrenderStatus` record（`:756`）
 3. 调用者：`MatchScoreboard.surrenderLine`（`:176`）、`RoomShellMenu.surrenderButton/infoButton`（`:184,209`）
@@ -418,21 +418,21 @@ flowchart TD
 6. 副作用：无（只读快照）。
 7. 线程：主线程。
 
-#### 2.6.3 `surrender(Player)` — `:816`【既有】
+#### 2.6.3 `surrender(Player)`，`:816`【既有】
 - 受理条件：`phase != PLAYING` → return（`:817`）；`team==null` → return（`:821`）。
 - 首次/过期则 new SurrenderVote(now+30s)（`:826-829`）；加票并清离线/离队旧票（`:830-835`）；`need=max(1,(online+1)/2)`（`:837`）；达票则 `surrenderVotes.remove` + 广播 + `finish(对方队)`（`:839-844`）；否则向同队发含 `[同意投降]` run_command 的提示（`:846-854`）。
-- 与 `surrenderStatus` 的 need 口径**完全一致**（`(online+1)/2`），REVIEW 点 G 已一致。
+- 与 `surrenderStatus` 的 need 口径完全一致（`(online+1)/2`），REVIEW 点 G 已一致。
 
-#### 2.6.4 `beginMatch(boolean)` 发壳行 — `:1276`【新增 行】
-- 既有方法 `beginMatch`（`:1150`）本次未改签名，仅在循环里 `stashAndClearInventory`（`:1269`）→ `giveCharacterWeapons`（`:1272`）→ **`plugin.roomShell().give(player)`（`:1276`）** 补发壳（清包后发，确保落第 9 格）。
+#### 2.6.4 `beginMatch(boolean)` 发壳行，`:1276`【新增行】
+- 既有方法 `beginMatch`（`:1150`）本次未改签名，仅在循环里 `stashAndClearInventory`（`:1269`）→ `giveCharacterWeapons`（`:1272`）→ `plugin.roomShell().give(player)`（`:1276`） 补发壳（清包后发，确保落第 9 格）。
 
-#### 2.6.5 `joinAsReinforcement(Player, TeamId)` — `:794`【既有】
-- 本身**不发壳**；壳由调用方 `joinRoom:919` 补发（见 2.7）。内部 `stashAndClearInventory`+`giveCharacterWeapons`+传送+记分板+出生增益（`:795-809`）。
+#### 2.6.5 `joinAsReinforcement(Player, TeamId)`，`:794`【既有】
+- 本身不发壳；壳由调用方 `joinRoom:919` 补发（见 2.7）。内部 `stashAndClearInventory`+`giveCharacterWeapons`+传送+记分板+出生增益（`:795-809`）。
 
-#### 2.6.6 `exitCageState(Player)` — `:1318`【改动：private→public】
+#### 2.6.6 `exitCageState(Player)`，`:1318`【改动：private→public】
 - 仅对 SURVIVAL/ADVENTURE 关 `setInvulnerable(false)`（`:1321-1324`）；幂等。被 `leaveMatch` 调用（`:555`）。
 
-#### 2.6.7 `characterIdOf(UUID)` — `:1389`【改动：private→public】
+#### 2.6.7 `characterIdOf(UUID)`，`:1389`【改动：private→public】
 - 经 `config().characters().profileOrNull(uuid)` 取绑定角色 id；被 `tryRejoin`（`:107`）调用。
 
 #### 2.6.8 背包相关【既有】
@@ -444,7 +444,7 @@ flowchart TD
 
 ### 2.7 `RoomManager`（paper/match/room/RoomManager.java）
 
-#### 2.7.1 `joinRoom(Player, String)` 发壳两路 — `:919`/`:940`【新增 行】
+#### 2.7.1 `joinRoom(Player, String)` 发壳两路，`:919`/`:940`【新增行】
 1. 位置：`paper/match/room/RoomManager.java:886`；发壳在 REINFORCED 路 `:919`、WAITING 等待路 `:940`
 2. 类型：【既有方法 + 本次新增行】
 3. 调用者：`/taketori join`、RoomListMenu 等（既有）
@@ -459,7 +459,7 @@ flowchart TD
 
 ---
 
-### 2.8 `MatchScoreboard.surrenderLine(Player)` — `:171`【本次新增 方法】
+### 2.8 `MatchScoreboard.surrenderLine(Player)` · `:171`【本次新增方法】
 
 1. 位置：`paper/match/MatchScoreboard.java:171`（调用点 `:154-158` 在 `update` 内）
 2. 类型：【本次新增】
@@ -485,43 +485,43 @@ flowchart TD
 1. 玩家执行 `/taketori join <id>`，`RoomManager.joinRoom`（`:886`）。
 2. 相位 WAITING/STARTING 分支：`target.addWaiting(player)`（`:935`）。
 3. `playerRooms.put(uuid, target)`（`:936`）。
-4. `target.stashAndClearInventory(player)` — 封存自带背包（`:937`，`GameRoom.java:1405`）。
-5. `plugin.roomShell().give(player)` — 清旧壳、写第 9 格（`:940`，`RoomShell.java:101-112`）。
+4. `target.stashAndClearInventory(player)`，封存自带背包（`:937`，`GameRoom.java:1405`）。
+5. `plugin.roomShell().give(player)`，清旧壳、写第 9 格（`:940`，`RoomShell.java:101-112`）。
 6. 传送等待区（`:942` 起）。
 
-**线程**：主线程。**涉及状态**：`waiting` 集合、`playerRooms`、`backups`（快照）、玩家背包第 9 格。
+线程：主线程。涉及状态：`waiting` 集合、`playerRooms`、`backups`（快照）、玩家背包第 9 格。
 
 ### 3.2 开局补发（beginMatch）
 1. `beginMatch(force)`（`:1150`）遍历 `teams` 参赛者（`:1258`）。
 2. 每位：`stashAndClearInventory`（清掉等待期发的壳+武器，`:1269`）。
 3. `giveCharacterWeapons`（`:1272`）。
-4. `plugin.roomShell().give(player)`（`:1276`）— 武器之后发，壳稳定落第 9 格。
+4. `plugin.roomShell().give(player)`（`:1276`），武器之后发，壳稳定落第 9 格。
 5. 传送、记分板、`applySpawnBuff`（`:1277-1284`）。
 6. CAGED：`enterCageState`（`:1299` 一带，设 invulnerable）。
 
-**线程**：主线程。**涉及状态**：`backups`（重拍快照）、玩家背包、phase（→CAGED/PLAYING）。
+线程：主线程。涉及状态：`backups`（重拍快照）、玩家背包、phase（→CAGED/PLAYING）。
 
 ### 3.3 对局中补位发壳（REINFORCED）
 1. `joinRoom` 检测到 CAGED/PLAYING + `reinforcementTeam()` 有空缺（`:905-909`）。
 2. 若从旧等待房转来：`removeWaiting`+`restoreInventoryIfAny`（`:910-915`）。
 3. `target.joinAsReinforcement(player, openTeam)`（`:916`，内部 stash+发武器+传送+记分板）。
 4. `playerRooms.put`（`:917`）。
-5. `plugin.roomShell().give(player)`（`:919`）— 补位路径不经过 addWaiting，故此处必补。
+5. `plugin.roomShell().give(player)`（`:919`），补位路径不经过 addWaiting，故此处必补。
 
-**线程**：主线程。**涉及状态**：`teams`、`playerRooms`、`backups`、背包第 9 格。
+线程：主线程。涉及状态：`teams`、`playerRooms`、`backups`、背包第 9 格。
 
 ### 3.4 右键开 GUI
 1. `PlayerInteractEvent` → `RoomShellListener.onInteract`（`:48`）：校验右键+主手+壳，cancel 原版（`:61`），校验在房间内（`:63-67`）。
 2. `roomShellMenu().open(player)`（`:85`）：建 Session（InventoryHolder）、`Bukkit.createInventory`（SIZE=27）、`render`（`:126` 画三按钮）、`openInventory`、起 `runTimerTask` 刷新（20t/20t，`:96-109`）。
 3. 刷新任务每 tick：检测 viewer 仍在线且 isViewing（`:97-99`），否则 cancel；超时清确认态（`:104-107`）；再 render（`:108`）。
-4. 关闭界面：下一 tick 闭包检测到非 viewing → `cancel`（`:100-101`），**refreshTask 一定被取消**。
+4. 关闭界面：下一 tick 闭包检测到非 viewing → `cancel`（`:100-101`），refreshTask 一定被取消。
 
-**线程**：open 与点击均在主线程；刷新任务经 `runTimerTask` 走主线程。**涉及状态**：Session（确认时间戳、refreshTask）、Inventory。
+线程：open 与点击均在主线程；刷新任务经 `runTimerTask` 走主线程。涉及状态：Session（确认时间戳、refreshTask）、Inventory。
 
 ### 3.5 退出二次确认 → 离局（inMatch）
 1. 玩家点 SLOT_LEAVE(11) → `onClick`（`:224`）→ `handleLeaveClick`（`:246`）。
 2. 非 waiting 非 inMatch 直接 return；inMatch 进入确认逻辑（`:258-262`）。
-3. 非确认态：设 `session.leaveConfirmUntilMillis = now + 5000ms`，return（`:265-268`）——按钮变 RED_TERRACOTTA（render 读到确认态，`:157-168`）。
+3. 非确认态：设 `session.leaveConfirmUntilMillis = now + 5000ms`，return（`:265-268`）：按钮变 RED_TERRACOTTA（render 读到确认态，`:157-168`）。
 4. 5s 内再点：确认态中 → 清时间戳、`closeInventory`、`leaveMatch(player)`（`:270-272`）。
 5. `leaveMatch`（`:524`）：
    - `keepEntry = roomLeaveRejoinWindow() && rejoin().rejoinSeconds()>0 && team!=null`（`:539-541`）；
@@ -532,40 +532,40 @@ flowchart TD
    - `sendToLobby(player)`（`:559`，清药水、传送、隐藏记分板）。
 6. 5s 超时未再点：刷新任务把 `leaveConfirmUntilMillis` 归零（`:104-107`），按钮弹回初始。
 
-**线程**：主线程。**涉及状态**：`sessions`（RejoinManager）、`teams`、playerRooms、`backups`（消费）、invulnerable、记分板、玩家背包。
+线程：主线程。涉及状态：`sessions`（RejoinManager）、`teams`、playerRooms、`backups`（消费）、invulnerable、记分板、玩家背包。
 
 ### 3.6 等待期退出房间（waiting 分支）
 1. 点 SLOT_LEAVE → `handleLeaveClick`（`:246`）：`waiting` 为真 → `closeInventory` + `returnToLobby(player)`（`:253-256`）。
 2. `returnToLobby`（`:469`）：观众先退观战；房间内 WAITING/STARTING → `rooms().leave(uuid)` 释放等待名额（`:496`）、广播 `room.leave-broadcast`、提示 `room.leave`、`sendToLobby`。
-3. **与流程 5 差异**：waiting 分支**不**走 `leaveMatch`，不登记重连会话、不 `exitCageState`（等待期无笼内无敌）、不 `restoreInventoryIfAny`（等待期已无对局装备，背包清包状态由 leave 流程处理）；仅释放等待名额回大厅。
+3. 与流程 5 差异：waiting 分支不走 `leaveMatch`，不登记重连会话、不 `exitCageState`（等待期无笼内无敌）、不 `restoreInventoryIfAny`（等待期已无对局装备，背包清包状态由 leave 流程处理）；仅释放等待名额回大厅。
 
-**线程**：主线程。**涉及状态**：`waiting` 集合、playerRooms、记分板。
+线程：主线程。涉及状态：`waiting` 集合、playerRooms、记分板。
 
 ### 3.7 投降
 1. 点 SLOT_SURRENDER(15) → `handleSurrenderClick`（`:276`）→ `room.surrender(player)`（`:281`）。
 2. `surrender`（`:816`）：仅 PLAYING 受理（CAGED 静默 return，故 GUI 中 CAGED 按钮置灰，REVIEW 点 F/G）；首次/过期建 30s 表决（`:826-829`）；加票、清旧票（`:830-835`）；`need=max(1,(online+1)/2)`（`:837`）；达票 → `finish(对方)`（`:839-844`）；否则向同队发含 `[同意投降]` 的提示（`:846-854`）。
-3. 侧栏显示：`MatchScoreboard.update`（既有的 `:154-158`）调 `surrenderLine`（`:171-182`）——只有 `room.teamOf(player)` 等于发起队才显示「投降表决: X/Y (剩 Zs)」；其它队/旁观返回 null 不显示。
+3. 侧栏显示：`MatchScoreboard.update`（既有的 `:154-158`）调 `surrenderLine`（`:171-182`）：只有 `room.teamOf(player)` 等于发起队才显示「投降表决: X/Y (剩 Zs)」；其它队/旁观返回 null 不显示。
 4. `RoomShellMenu.surrenderButton`（`:178-183`）仅在 PLAYING 可点，CAGED 置灰。
 
-**线程**：主线程。**涉及状态**：`surrenderVotes` map、记分板行、`finish` 触发 phase→ENDING。
+线程：主线程。涉及状态：`surrenderVotes` map、记分板行、`finish` 触发 phase→ENDING。
 
 ### 3.8 重连
-**掉线（MatchListener.onQuit，`:227`）**：
+掉线（MatchListener.onQuit，`:227`）：
 1. 取 room/team；`rejoinable = isRunning() && team!=null && rejoinSeconds()>0`（`:233-234`）。
-2. `stashOfflineBackup(uuid)`（单参，`:237`）— 把房间 backups 快照转全局 `offlineBackups`。
+2. `stashOfflineBackup(uuid)`（单参，`:237`），把房间 backups 快照转全局 `offlineBackups`。
 3. rejoinable → `leaveForRejoin(uuid)`（保留 teams 条目）+ `register(uuid,room,team)`（`:241-242`）；否则 `leave`（`:244`）。
 
-**上线（PlayerListener.onJoin，`:39`）**：
+上线（PlayerListener.onJoin，`:39`）：
 1. `rejoin().tryRejoin(player)` 成功则 return（跳过大厅/发武器，`:39-41`）。
-2. `tryRejoin`（`:67`）：取 session、过期/房间失效则 `quitMatch` 并返回；`attachAfterRejoin` 绑映射；传送出生点；`restoreInventoryIfAny` + `restoreOfflineBackup` 还原；**`stashAndClearInventory` 重封存**→`giveCharacterWeapons`→`roomShell().give` 补壳（`:103-112`）；记分板+广播。
+2. `tryRejoin`（`:67`）：取 session、过期/房间失效则 `quitMatch` 并返回；`attachAfterRejoin` 绑映射；传送出生点；`restoreInventoryIfAny` + `restoreOfflineBackup` 还原；`stashAndClearInventory` 重封存→`giveCharacterWeapons`→`roomShell().give` 补壳（`:103-112`）；记分板+广播。
 
-**RoomShellListener.onDeath（`:167`）死亡保留**：
+RoomShellListener.onDeath（`:167`）死亡保留：
 - keepInventory true → 直接 return（壳已由世界规则保留）；
 - false → 从 drops 移除壳，身上无壳则 `give` 补回（`:174-177`）。两条分支都成立。
 
-**purgeExpired（`:135`）**：会话过期 → `quitMatch` 释放 teams 条目 + `extractBackup` 取快照 → 双参 `stashOfflineBackup` 兜底入 `offlineBackups`（`:149-157`）；若玩家已进服会由 `restoreOfflineBackup`（`:1109`/onJoin `:72`）取回，**不丢背包**。
+purgeExpired（`:135`）：会话过期 → `quitMatch` 释放 teams 条目 + `extractBackup` 取快照 → 双参 `stashOfflineBackup` 兜底入 `offlineBackups`（`:149-157`）；若玩家已进服会由 `restoreOfflineBackup`（`:1109`/onJoin `:72`）取回，不丢背包。
 
-**线程**：均主线程（MONITOR 事件内）。**涉及状态**：sessions、teams、playerRooms、backups↔offlineBackups、玩家背包、记分板。
+线程：均主线程（MONITOR 事件内）。涉及状态：sessions、teams、playerRooms、backups↔offlineBackups、玩家背包、记分板。
 
 ---
 
@@ -582,8 +582,8 @@ flowchart TD
 | `surrenderVotes` (TeamId→SurrenderVote) | GameRoom | ✓ | ✓ | `surrender:825-840`、`surrenderStatus:733` |
 | `phase` | GameRoom | ✓ | （既有的 beginMatch/cage） | `joinRoom:905`、`surrender:817`、`surrenderButton:179` |
 | 玩家背包第 9 格（SLOT_HOTBAR=8） | Player | ✓ | ✓ | `RoomShell.give:101`、`removeExisting:117` |
-| invulnerable（笼内） | Player | — | ✓（exitCageState） | `GameRoom.exitCageState:1318` |
-| 记分板（侧栏行） | MatchScoreboard | — | ✓（surrenderLine） | `update:154`、`surrenderLine:171` |
+| invulnerable（笼内） | Player | - | ✓（exitCageState） | `GameRoom.exitCageState:1318` |
+| 记分板（侧栏行） | MatchScoreboard | - | ✓（surrenderLine） | `update:154`、`surrenderLine:171` |
 | Session.leaveConfirmUntilMillis | RoomShellMenu.Session | ✓ | ✓ | `handleLeaveClick:267,270`、`open:104-107` |
 | PDC `room_shell`（BYTE） | ItemStack | ✓ | ✓（create 写） | `PDCKeys.roomShell():188`、`RoomShell.create:61` |
 
@@ -598,7 +598,7 @@ flowchart TD
 - `room-shell.leave.rejoin-window`（默认 true）：`roomLeaveRejoinWindow:1004` ← `leaveMatch:539` 的 keepEntry 判定。
 - `room.rejoin-seconds`（默认 300，0=关闭）：`RejoinManager.rejoinSeconds:41` ← keepEntry 与 onQuit 的 rejoinable 判定。
 
-### 文案（messages.yml，键均在 `room-shell:` 段，`:232-257`）
+### 文案（messages.yml · 键均在 `room-shell:` 段 · `:232-257`）
 - `room-shell.title`（`:233`）：GUI 标题。
 - 物品：`undroppable:235`、`locked:236`、`not-in-room:237`。
 - 退出：`leave-room:239`/`leave-room-lore:240`、`leave-match:241`/`leave-match-lore:242`、`leave-confirm:243`/`leave-confirm-lore:244`、`leave-unavailable:245`/`leave-unavailable-lore:246`（文案为「结算阶段无需退出…」）。
@@ -628,19 +628,19 @@ flowchart TD
 >
 > 下列改动在文档主体写就之后完成，请以当前代码为准：
 >
-> 1. **`RoomShellMenu.onClose` 新增**（`paper/match/room/RoomShellMenu.java:323-328`，位于文件末尾）：
+> 1. `RoomShellMenu.onClose` 新增（`paper/match/room/RoomShellMenu.java:323-328`，位于文件末尾）：
 >    显式监听 `InventoryCloseEvent`，关闭界面即 `cancel(session)`。此前 `InventoryCloseEvent`
->    只有 import 而无处理器（死 import），取消依赖刷新闭包的 `isViewing` 兜底——最多晚一拍。
->    现改为确定性取消。**该方法追加在类末尾（L323-328），因此本文档中 `RoomShellMenu` 既有行号（<323）全部保持不变。**
-> 2. **`TaketoriPlugin` 注册单例**（`TaketoriPlugin.java:255-260`）：
+>    只有 import 而无处理器（死 import），取消依赖刷新闭包的 `isViewing` 兜底：最多晚一拍。
+>    现改为确定性取消。该方法追加在类末尾（L323-328），因此本文档中 `RoomShellMenu` 既有行号（<323）全部保持不变。
+> 2. `TaketoriPlugin` 注册单例（`TaketoriPlugin.java:255-260`）：
 >    `registerEvents(roomShellMenu(), this)` 取代原先的 `new RoomShellMenu(this)`。
 >    原先会构造两个对象（一个被注册、一个由 `plugin.roomShellMenu()` 用于 `open()`）。
->    两者行为等价——`RoomShellMenu` 无实例字段、`Session` 是静态嵌套类——故点击 / 关闭事件
+>    两者行为等价：`RoomShellMenu` 无实例字段、`Session` 是静态嵌套类：故点击 / 关闭事件
 >    并不会因实例不同而失效；统一为单例是为了防止日后新增实例字段时两个对象各持一份状态。
-> 3. **离局与重连的背包语义**（`LobbyManager.leaveMatch`、`RejoinManager.tryRejoin`）：
+> 3. 离局与重连的背包语义（`LobbyManager.leaveMatch`、`RejoinManager.tryRejoin`）：
 >    离局时归还并消费开局前封存的背包（避免房间结算对在线玩家写回旧快照）；
 >    重连时重新封存并补发对局装备与功能壳，避免裸装回战场。
-> 4. **空房回收**（`GameRoom.onlineParticipantCount`）：
+> 4. 空房回收（`GameRoom.onlineParticipantCount`）：
 >    排除已登记重连会话的占位者，使全员离局 / 离线后房间世界能正常回收。
 >
 > 本文档 §2.3 各方法的小节行号仍有效（新方法在文件末尾）；§2.1 / §2.2 未受影响。

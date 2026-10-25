@@ -716,6 +716,29 @@ public final class ConfigManager {
         return plugin.getConfig().getBoolean("lobby.return-after-match", true);
     }
 
+    /**
+     * 回程落点：true = 回到进房间前所在的位置，false = 回到大厅出生点。
+     *
+     * <p>多世界服务器上「回原位置」才有意义（玩家可能从资源世界被拽进大厅）；
+     * 单世界服务器关掉它可以让所有人统一落在大厅出生点，避免对局结束后
+     * 有人被送回刷怪塔顶上。原位置所在世界已被卸载时一律回落到大厅出生点。</p>
+     */
+    public boolean lobbyReturnToEntry() {
+        return plugin.getConfig().getBoolean("lobby.return-to-entry", true);
+    }
+
+    // ---- CS 式包点 ----
+
+    /** 拆包需要的点击次数（至少 1 下）。 */
+    public int bombClicks() {
+        return Math.max(1, plugin.getConfig().getInt("bomb.defuse-clicks", 10));
+    }
+
+    /** 拆包进度中断多少秒后复位（至少 1 秒）。 */
+    public int bombResetSeconds() {
+        return Math.max(1, plugin.getConfig().getInt("bomb.reset-seconds", 7));
+    }
+
     /** 玩家进服是否自动传送到大厅。 */
     public boolean lobbyTeleportOnJoin() {
         return plugin.getConfig().getBoolean("lobby.teleport-on-join", true);

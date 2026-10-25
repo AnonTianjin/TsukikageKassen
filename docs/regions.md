@@ -19,7 +19,7 @@
 
 ## 二、划点指令（/taketori arena …）
 
-编辑对象是「当前选中的场地」（`/taketori arena select <id>`），在**模板编辑世界**
+编辑对象是「当前选中的场地」（`/taketori arena select <id>`），在模板编辑世界
 里操作（`/taketori moonmap load <名>` → `/taketori arena setup <名>` 一条龙）。
 
 | 指令 | 写入 | 说明 |
@@ -27,17 +27,17 @@
 | `setminion [编号] [kind]` | `minion-regions.<n>` | 月人刷新区。`kind: normal\|mixed`（默认 mixed） |
 | `setbase <red\|blue> [编号]` | `bases.<队>.<n>` | 基地占点区。编号受 `base.count-per-team` 约束 |
 | `setspawn <red\|blue>` | `spawns.<队>` | 队伍出生点（开局传送 + 笼子中心），以玩家当前位置写入 |
-| `setwait [半径]` | `wait-spawn` 或 `wait-region` | **有选区 = 整个选区设为等待区**（加入者随机分布）；无选区 = 以当前位置为等待单点（向后兼容） |
+| `setwait [半径]` | `wait-spawn` 或 `wait-region` | 有选区 = 整个选区设为等待区（加入者随机分布）；无选区 = 以当前位置为等待单点（向后兼容） |
 | `setloot <编号>` | `loot-regions.<n>` | 对局内道具刷新点（区域） |
 | `setoutpost` / `deloutpost` | `outpost` | PVE 保卫据点位置（单点） |
-| `delminion <n>` / `delbase <队> <n>` / `delloot <n>` | — | 删除对应编号 |
+| `delminion <n>` / `delbase <队> <n>` / `delloot <n>` | - | 删除对应编号 |
 
 `setwait` 的两种形态影响等待体验：区域形态下加入者在区域内 `randomLocation`
 分布，虚空拉回用区域中心；单点形态则全部站在 `wait-spawn`。虚空判定阈值：
 Y 低于「等待点 Y + `waiting.void-y-offset`（默认 -10）」自动拉回。
 
 编辑收尾：`/taketori arena setup done` 写回模板世界并保存 arenas.yml；
-`cancel` 放弃。**进行中的对局不受影响**——点位属于模板，下一次建房生效。
+`cancel` 放弃。进行中的对局不受影响：点位属于模板，下一次建房生效。
 
 ## 三、区域类型与运行时语义
 
@@ -93,16 +93,16 @@ arenas:
 区域条目是 `CuboidRegion.write` 的世界名 + 两角点；单点是 `Point.write` 的
 世界名 + 坐标 + 朝向。`copyForWorld` 会在复制模板为房间世界时把所有区域
 重定向到新世界名。手工编辑 arenas.yml 后 `/taketori reload` 生效，但建议
-走指令——区域合法性（两点世界一致、编号连续）由写入路径保证。
+走指令：区域合法性（两点世界一致、编号连续）由写入路径保证。
 
 ## 五、就绪判定与排查
 
 `/taketori arena list` 显示每个模板的就绪状态；判定口径：
 
-- **PVP/PVE**（`ArenaDef.missingHint`）：双方出生点 + 等待出生点 +
+- PVP/PVE（`ArenaDef.missingHint`）：双方出生点 + 等待出生点 +
   双方基地配满 `base.count-per-team`（auto 模式下每队至少 1 个）+ 至少一个
   月人刷新区（PVE 还要求据点可用，未划自动回落刷新区中心，不算缺）；
-- **战国**（`SengokuMapDef.missingHint`）：见战国文档第三节。
+- 战国（`SengokuMapDef.missingHint`）：见战国文档第三节。
 
 | 现象 | 原因与处理 |
 | --- | --- |

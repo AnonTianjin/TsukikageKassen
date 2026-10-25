@@ -1105,6 +1105,27 @@ public final class MatchCommand {
                 }
                 plugin.arenaSetup().sendChecklist(player);
             }
+            case "setbomb", "setbombsite" -> {
+                if (!checkTemplateWorld(sender, player.getWorld().getName(), def)) {
+                    return;
+                }
+                // 用站位定包点：包点只需要一个方块，划选区反而多余（还要在选区里挑一个格子）
+                def.setBomb(player.getLocation());
+                arenaManager.save();
+                send(sender, "<green>[" + def.id() + "] 包点已设置：" + describe(player.getLocation()));
+                send(sender, "<dark_gray>开局这个方块会变成拉杆：进攻方（红）连点 "
+                        + plugin.config().bombClicks() + " 下拆开即胜，防守方（蓝）守包。");
+                plugin.arenaSetup().sendChecklist(player);
+            }
+            case "clearbomb", "delbomb" -> {
+                if (!def.hasBomb()) {
+                    send(sender, "<yellow>[" + def.id() + "] 本来就没有设置包点。");
+                    return;
+                }
+                def.clearBomb();
+                arenaManager.save();
+                send(sender, "<green>[" + def.id() + "] 包点已清除，本场地的对局改回只按分数判胜负。");
+            }
             default -> sendArenaUsage(sender);
         }
     }
@@ -1203,7 +1224,8 @@ public final class MatchCommand {
         send(sender, "<gray>/taketori arena setoutpost  <dark_gray>— 选区中心（或站位）设为 PVE 据点");
         send(sender, "<gray>/taketori arena setwait  <dark_gray>— 等待出生点：有选区=整片等待区（加入者随机分布），无选区=你的站位");
         send(sender, "<gray>/taketori arena setspawn <red|blue>");
-        send(sender, "<gray>/taketori arena deloutpost | delbase <red|blue> <编号> | delminion <编号> | delloot <编号>");
+        send(sender, "<gray>/taketori arena setbomb  <dark_gray>— 用站位设置包点（开局变成拉杆，红队连点拆开即胜）");
+        send(sender, "<gray>/taketori arena deloutpost | delbase <red|blue> <编号> | delminion <编号> | delloot <编号> | clearbomb");
         send(sender, "<gray>/taketori arena clearselection  <dark_gray>— 清空你当前的选区（pos1 / pos2）");
         send(sender, "<gray>/taketori arena wand | lootwand  <dark_gray>— 领选区锄 / 道具点工具");
     }

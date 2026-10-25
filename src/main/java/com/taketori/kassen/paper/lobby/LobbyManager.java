@@ -587,12 +587,25 @@ public final class LobbyManager {
 
     /** 把玩家送到大厅，并清掉技能残留状态。 */
     public void sendToLobby(Player player) {
+        sendToLocation(player, spawn());
+    }
+
+    /**
+     * 把玩家送到指定落点，并清掉技能残留状态。
+     *
+     * <p>与 {@link #sendToLobby} 的差别只有落点：对局结束后的回程落点由
+     * {@code lobby.return-to-entry} 决定，其余收尾动作（清药水、解除旁观、
+     * 撤记分板）两条路径必须完全一致，所以共用这一个实现。</p>
+     *
+     * @param player 目标玩家
+     * @param target 落点；{@code null} 或世界已卸载时只做清场不传送
+     */
+    public void sendToLocation(Player player, Location target) {
         if (player == null || !player.isOnline()) {
             return;
         }
         clearTransient(player);
-        Location target = spawn();
-        if (target != null) {
+        if (target != null && target.getWorld() != null) {
             player.teleport(target);
         }
         if (player.getGameMode() == GameMode.SPECTATOR) {

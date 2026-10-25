@@ -28,7 +28,7 @@
 | `time-limit-minutes` | 8 | 单小局时限，到点按 `timeout-winner` 判定 |
 | `timeout-winner` | `tower-count` | `tower-count` = 占领箭楼数多者胜、持平判平局重开；`draw` = 直接平局重开 |
 
-小局状态机在 `SengokuSession`。平局重开**不推进局号**（`replayingRound` 标志），
+小局状态机在 `SengokuSession`。平局重开不推进局号（`replayingRound` 标志），
 `SengokuScore` 记分也不把平局算进局数。整场胜负由 `score.matchWinner(bestOf)` 判定，
 打满局数仍未分胜负时按 `isFinished` 兜底收尾。
 
@@ -38,7 +38,7 @@ keep 段（天守阁）：
 | --- | --- | --- |
 | `keep.invulnerable` | true | 天守阁永久不可破坏，唯一陷落方式是击破器读条 |
 | `keep.arm-radius` | 4.0 | 击破器读条的判定半径。实际判据是「进入天守阁区域」，
-  半径只是区域边界的**外扩容差**（贴墙站不算出界），不是球心距离——区域大时
+  半径只是区域边界的外扩容差（贴墙站不算出界），不是球心距离：区域大时
   球心距判定会退化，见 `SiegeBreakerManager.insideKeep` |
 | `keep.protect-blocks` | true | 拦截天守阁区域内的方块破坏与爆炸 |
 
@@ -60,7 +60,7 @@ keep 段（天守阁）：
 对应删除指令为 `delkeep / delkeepdoor / deltower / delbell / delguard / delmid /
 deljumppad / delall`。
 
-**开局就绪判定**（`SengokuMapDef.missingHint`，`/taketori sengoku check` 也可看）：
+开局就绪判定（`SengokuMapDef.missingHint`，`/taketori sengoku check` 也可看）：
 双方天守阁区域 + 门前点 + 跳跃台、`tower-rules.count` 座箭楼的占领区/铜钟/守卫点、
 至少一个中地小兵刷新区，**任缺其一不能开局**，`beginMatch` 会列出缺项。
 编辑流程：`/taketori arena setup <场地id>` 进入编辑世界 → 划点位 →
@@ -81,10 +81,10 @@ deljumppad / delall`。
 
 `contest-lock` 的精确语义（实现：`TowerContest.advanceFor`，纯逻辑可离线单测）：
 
-- 双方同场且 `contest-lock: true` → 双方进度**原样停住**，不清零；
-- 双方同场且 `contest-lock: false` → **两队各自独立读条**，先读满的一队易主；
+- 双方同场且 `contest-lock: true` → 双方进度原样停住，不清零；
+- 双方同场且 `contest-lock: false` → 两队各自独立读条，先读满的一队易主；
   同一 tick 双双读满时按进度、再按红队先手结算（`TowerCaptureManager.tick`）；
-- 一方在场一方不在 → 在场方推进，离场方进度**保持不衰减**（否则两人轮流进区
+- 一方在场一方不在 → 在场方推进，离场方进度保持不衰减（否则两人轮流进区
   会让读条永远推不动）；
 - 都不在 → 按衰减衰减；
 - 读满即占领，占领后守卫到点重刷，下一次争夺需重新清守卫 + 敲钟。
@@ -101,8 +101,8 @@ patrol-radius / aggro-radius`。`aggro-radius` 是守卫的主动索敌半径
 
 ## 五、击破器与跳跃台（sengoku-siege.yml）
 
-连锁事件：己方占领任一箭楼 → 敌方天守阁门前生成**大将击破器**、己方门前激活
-**跳跃台**（`TowerManager.onCaptured` → `siege().ensureBreaker` / `jumpPads().ensurePad`）。
+连锁事件：己方占领任一箭楼 → 敌方天守阁门前生成大将击破器、己方门前激活
+跳跃台（`TowerManager.onCaptured` → `siege().ensureBreaker` / `jumpPads().ensurePad`）。
 
 `siege-breaker` 段关键项：
 
@@ -128,7 +128,7 @@ patrol-radius / aggro-radius`。`aggro-radius` 是守卫的主动索敌半径
 
 ## 六、中地小兵（sengoku-minions.yml）
 
-设计约束：小兵**可以被绕过**（不堵路），击杀不计对局积分，只给能量。
+设计约束：小兵可以被绕过（不堵路），击杀不计对局积分，只给能量。
 
 | 键 | 默认 | 说明 |
 | --- | --- | --- |
@@ -149,7 +149,7 @@ patrol-radius / aggro-radius`。`aggro-radius` 是守卫的主动索敌半径
 | `display` | actionbar | `actionbar` / `bossbar` / `none`。BossBar 留给小局比分，默认动作栏 |
 | `ultimate-slot` | q | 必杀占用的输入槽；当前只支持 `q`（`usesQSlot()`，配别的值 = 必杀不接管 Q） |
 
-必杀与 Q 原行为的关系：能量**未满**时本文件完全不干预，Q 走 `config.yml`
+必杀与 Q 原行为的关系：能量未满时本文件完全不干预，Q 走 `config.yml`
 `input.q-mode`；能量满时 Q 被必杀接管（`EnergyManager.tryUltimate`，在
 `InputListener.onDrop` 中先于潜行-Q 第三槽与 q-mode 分支判定），放完立即清空。
 
@@ -168,7 +168,7 @@ slow-duration / slow-amplifier / particle / sound`。命中判定走
 | `/taketori sengoku pause` / `resume` | 暂停 / 恢复小局计时；只对进行中的小局生效 |
 | `/taketori sengoku endround <red\|blue\|draw>` | 管理员直接判定当前小局 |
 | `/taketori sengoku towers` / `breaker` / `jumppad` | 查看运行时状态 |
-| `/taketori sengoku mode <pvp\|pve\|sengoku_3v3>` | 切换**全局默认模式**（写回 config.yml，只影响之后新建的房间）；改单个在跑的房间用 `/taketori match mode <模式> [房间id]` |
+| `/taketori sengoku mode <pvp\|pve\|sengoku_3v3>` | 切换全局默认模式（写回 config.yml，只影响之后新建的房间）；改单个在跑的房间用 `/taketori match mode <模式> [房间id]` |
 
 小局计时与组件 tick 都只在 `GameRoom.isRunning()`（PLAYING）时运转；玻璃笼阶段
 （CAGED）不刷怪、不读条、不积能量。
@@ -177,8 +177,8 @@ slow-duration / slow-amplifier / particle / sound`。命中判定走
 
 - **开局报「战国点位未就绪」**：`/taketori sengoku check` 看缺项；编号必须连续
   且与 `towers.count` 对齐；
-- **敲钟没反应**：守卫没清完（会收到提示）或铜钟点位与实际方块不一致；
-- **占领读条不动**：`contest-lock: true` 且双方都在区内是预期行为；单人在场仍不动
+- 敲钟没反应：守卫没清完（会收到提示）或铜钟点位与实际方块不一致；
+- 占领读条不动：`contest-lock: true` 且双方都在区内是预期行为；单人在场仍不动
   查 `decay-per-second` 与读条秒数配置；
-- **击破器消失**：查是否被带进未回收区域、`one-per-team` 是否被补齐逻辑重置；
+- 击破器消失：查是否被带进未回收区域、`one-per-team` 是否被补齐逻辑重置；
   掉出虚空无事件可拦，属已知边界。

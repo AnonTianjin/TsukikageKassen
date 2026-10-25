@@ -22,13 +22,15 @@ match:
 | 基地占点 | 有（`base.*`） | 无（PVE 换成保卫据点 `pve.outpost`） |
 | 友伤保护 | 默认开 | 默认开（同房间互不伤害） |
 | 满员 | `team-size × 2` | `waiting.pve-full-players`（0 = 取 `team-size`） |
-| 额外机制 | — | 大波次、精英缩放、据点 |
+| 额外机制 | - | 大波次、精英缩放、据点 |
 
 ## 二、对局规则（match / scoring 段）
 
 | 键 | 默认 | 说明 |
 | --- | --- | --- |
-| `match.score-to-win` | 600 | 先到该分数获胜 |
+| `match.score-to-win` | 600 | 进攻方先到该分数获胜（没有包点的场地两边都用它） |
+| `match.defender-score-to-win` | 600 | 防守方（蓝）目标分；PVP 有包点时按各自目标显示进度 |
+| `match.attacker-score-multiplier` | 1.0 | 进攻方（红）得分倍率，用来抵消包点给红队多出来的一条获胜路径 |
 | `match.time-limit-minutes` | 20 | 超时按分高者胜，平分判平局 |
 | `match.team-size` | 3 | 每队人数上限（PVP 满员判定与分队容量） |
 | `match.respawn-delay-seconds` | 5 | 死亡自动复活秒数；复活点固定为己方出生点 |
@@ -38,10 +40,28 @@ match:
 | `scoring.base-capture` | 50 | 拆除基地得分（PVE 无此项） |
 
 胜负判定在 `GameRoom.tick`（PLAYING 分支）：到 `score-to-win` 即 `finish`；
-通用时限只对 PVP/PVE 生效——**战国模式恒跳过**（战国积分恒 0-0，
+通用时限只对 PVP/PVE 生效：战国模式恒跳过（战国积分恒 0-0，
 胜负由 `SengokuSession` 按小局比分决定，见其文档第九节）。
 
-## 三、基地占点（PVP 专属，base 段）
+## 三、包点（PVP 专属，bomb 段）
+
+场地划了包点之后，这一局多一条获胜路径：进攻方（红）把包点拆开就赢，不必刷满分数。
+
+| 键 | 默认 | 说明 |
+| --- | --- | --- |
+| `bomb.defuse-clicks` | 10 | 拆包需要的点击次数 |
+| `bomb.reset-seconds` | 7 | 进度复位时限：这么久没再点，进度清零并通知进攻方 |
+
+划线方式：站到要当包点的方块上，`/taketori arena setbomb`；取消用
+`/taketori arena delbomb`。坐标存在 `arenas.yml` 的 `bomb` 段，只有一格。
+
+开局时该方块被换成拉杆。进攻方右键连点 `defuse-clicks` 下即 `finish(RED)`；
+防守方守的是「别让人点够」。包点方块禁止被挖，左键也会被吞掉：原版左键能把拉杆打掉，
+包点一消失这局就没有目标了。方块被外力改掉时由 `BombObjective.maintainBlock()` 每 tick 补回拉杆。
+
+不划包点的场地行为完全不变，仍只按分数判胜负。
+
+## 四、基地占点（PVP 专属，base 段）
 
 | 键 | 默认 | 说明 |
 | --- | --- | --- |
@@ -55,7 +75,7 @@ match:
 得分 `scoring.base-capture`。基地区域用 `/taketori arena setbase <red|blue> [编号]`
 划定（见 [区域配置](regions.md)）。
 
-## 四、战斗参数（combat 段，两模式共用）
+## 五、战斗参数（combat 段，两模式共用）
 
 | 键 | 默认 | 说明 |
 | --- | --- | --- |
@@ -69,7 +89,7 @@ match:
 
 角色数值（血量、攻速等属性）在 `characters.yml`，不在本文范围。
 
-## 五、月人（minion 段）
+## 六、月人（minion 段）
 
 | 键 | 默认 | 说明 |
 | --- | --- | --- |
@@ -81,7 +101,7 @@ match:
 | `elite.every-waves` | 5 | 每 N 波出一批精英；0/1 = 关闭 |
 | `elite.count` / `max-alive` / `health` / `armor` / `attack-damage` | 2 / 4 / 80 / DIAMOND / 15 | 精英数值。`attack-damage` 单位是生命点（15 = 7.5 心） |
 
-**双计时循环**：`minion-regions` 的 `<编号>.kind` 决定区域归属——
+双计时循环：`minion-regions` 的 `<编号>.kind` 决定区域归属：
 `normal` 只进 normal 循环、`mixed`（默认）进 mixed 循环；普通月人在全部区之间
 轮转均分，精英只在 mixed 区刷。两条循环互不共享计数与生命周期，某类区域全被关掉
 或不存在时对应循环不启动。区间覆盖关系：场地未配置的项回落全局默认。
@@ -89,7 +109,7 @@ match:
 伤害/状态结算口径见 `SkillTargets.isFilteredTarget`：受友伤保护的队友、召唤物、
 观战者、笼内/等待区保护期玩家对月人技能与对玩家技能同一套判定。
 
-## 六、PVE 专属（pve 段）
+## 七、PVE 专属（pve 段）
 
 ### 难度
 
@@ -128,7 +148,7 @@ match:
 PVE 的胜负路径：`score-to-win` 达分获胜；据点被拆且
 `end-match-on-destroyed: true` 时结束对局（管理指令停止不写战绩）。
 
-## 七、PVE 房间要点
+## 八、PVE 房间要点
 
 - 满员人数 `waiting.pve-full-players`（0 = 取 `match.team-size`）；
 - 分队不需要选边：开局时未选队者统一并红队，等待区不会因「未选队伍」卡开局；

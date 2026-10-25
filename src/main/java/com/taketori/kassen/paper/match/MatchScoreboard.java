@@ -143,8 +143,13 @@ public final class MatchScoreboard {
             lines.add("剩余: " + minutes + " 分");
         } else {
             objective.displayName(MINI.deserialize("<gold><bold>月影合战 3v3</bold>"));
-            lines.add("红队: " + match.teamScore(TeamId.RED));
-            lines.add("蓝队: " + match.teamScore(TeamId.BLUE));
+            // 攻防目标分不同，所以两行都带上各自的目标：只写「红队: 120」看不出还差多少
+            lines.add("红队: " + match.teamScore(TeamId.RED) + "/" + match.scoreTargetOf(TeamId.RED));
+            lines.add("蓝队: " + match.teamScore(TeamId.BLUE) + "/" + match.scoreTargetOf(TeamId.BLUE));
+            BombObjective bomb = room.bomb();
+            if (bomb != null) {
+                lines.add("包点: " + bomb.progressText());
+            }
             lines.add("你的得分: " + match.playerScore(player.getUniqueId()));
             lines.add("本局击杀: " + match.totalKillsOf(player.getUniqueId()));
             lines.add("波次: " + room.minions().wave());

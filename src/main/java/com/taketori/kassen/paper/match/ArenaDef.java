@@ -100,6 +100,12 @@ public final class ArenaDef {
 
     /** PVE 保卫据点的位置（雪傀儡站在这里）；没设置时用第一个月人刷新区中心。 */
     private Point outpost;
+    /**
+     * 包点：PVP 里开局把这个方块换成拉杆，进攻方（红）连点拆开即胜。
+     *
+     * <p>没设置的场地照旧只按分数判胜负，不额外要求管理员先标点。</p>
+     */
+    private Point bomb;
     /** 中立等待出生点：匹配后玩家在此集结等待倒计时（开局才分队）。 */
     private Point waitSpawn;
     /** 等待区区域（可选）：设置了就用整个选区，加入者在区域内随机分布；未设置时用 waitSpawn 单点。 */
@@ -204,6 +210,9 @@ public final class ArenaDef {
         }
         if (outpost != null) {
             copy.outpost = outpost.inWorld(worldName);
+        }
+        if (bomb != null) {
+            copy.bomb = bomb.inWorld(worldName);
         }
         if (waitSpawn != null) {
             copy.waitSpawn = waitSpawn.inWorld(worldName);
@@ -487,6 +496,24 @@ public final class ArenaDef {
         return outpost != null;
     }
 
+    // ---------------------------------------------------------------- 包点
+
+    public void setBomb(Location location) {
+        this.bomb = location == null || location.getWorld() == null ? null : Point.of(location);
+    }
+
+    public void clearBomb() {
+        this.bomb = null;
+    }
+
+    public Point bomb() {
+        return bomb;
+    }
+
+    public boolean hasBomb() {
+        return bomb != null;
+    }
+
     // ---------------------------------------------------------------- 等待出生点
 
     public void setWaitSpawn(Location location) {
@@ -647,6 +674,7 @@ public final class ArenaDef {
         bases.values().forEach(Map::clear);
         spawns.clear();
         outpost = null;
+        bomb = null;
         waitSpawn = null;
         waitRegion = null;
         spawnIntervalSeconds = null;
@@ -701,6 +729,7 @@ public final class ArenaDef {
             }
         }
         outpost = Point.read(section.getConfigurationSection("outpost"));
+        bomb = Point.read(section.getConfigurationSection("bomb"));
         waitSpawn = Point.read(section.getConfigurationSection("wait-spawn"));
         waitRegion = CuboidRegion.read(section.getConfigurationSection("wait-region"));
         // 战国点位：整段缺失是正常的（非战国地图本来就没有）
@@ -797,6 +826,9 @@ public final class ArenaDef {
         }
         if (outpost != null) {
             outpost.write(section.createSection("outpost"));
+        }
+        if (bomb != null) {
+            bomb.write(section.createSection("bomb"));
         }
         if (waitSpawn != null) {
             waitSpawn.write(section.createSection("wait-spawn"));
