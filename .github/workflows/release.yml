@@ -73,7 +73,12 @@ jobs:
         run: |
           set -euo pipefail
           version=$(sed -n 's/^version=//p' gradle.properties | head -n 1)
-          jar="build/libs/TsukikageKassen-${version}.jar"
+          # 不按文件名硬猜：老 tag 里的产物命名规则可能和现在不同，build/libs 下只有一个 jar。
+          jar=$(ls build/libs/*.jar | head -n 1)
+          if [ ! -f "$jar" ]; then
+            echo "build/libs 下没有 jar，构建没有产出可发布的包" >&2
+            exit 1
+          fi
           sha=$(sha256sum "$jar" | cut -d' ' -f1)
           size=$(stat -c %s "$jar")
           {
@@ -96,7 +101,7 @@ jobs:
         run: |
           set -euo pipefail
           version="${{ steps.jar.outputs.version }}"
-          jar="build/libs/TsukikageKassen-${version}.jar"
+          jar=$(ls build/libs/*.jar | head -n 1)
           notes="docs/releases/${version}.md"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "$jar" --clobber

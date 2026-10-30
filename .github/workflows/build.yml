@@ -57,7 +57,11 @@ jobs:
         run: |
           set -euo pipefail
           version=$(sed -n 's/^version=//p' gradle.properties | head -n 1)
-          jar="build/libs/TsukikageKassen-${version}.jar"
+          jar=$(ls build/libs/*.jar | head -n 1)
+          if [ ! -f "$jar" ]; then
+            echo "build/libs 下没有 jar，构建没有产出可用的包" >&2
+            exit 1
+          fi
           {
             echo "### 构建通过"
             echo ""
@@ -74,7 +78,7 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: TsukikageKassen-${{ steps.jar.outputs.version }}
-          path: build/libs/TsukikageKassen-*.jar
+          path: build/libs/*.jar
           # 没打出 jar 就是构建失败，不能让空 artifact 也显示成功。
           if-no-files-found: error
           retention-days: 14
