@@ -16,6 +16,11 @@ on:
         description: 已存在的 tag，例如 v2.0.1
         required: true
         type: string
+      dry_run:
+        description: 只构建不发布，用来试跑这条链路
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -85,6 +90,7 @@ jobs:
 
       # Release 正文优先用 docs/releases/<版本>.md：发版说明和代码同一个仓库、同一个 PR 里改。
       - name: Publish release asset
+        if: ${{ !inputs.dry_run }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
