@@ -23,7 +23,7 @@
 ## 一、安装
 
 1. 从 [Releases](https://github.com/AnonTianjin/TsukikageKassen/releases/latest) 下载
-   最新版本的 `tsukikage-kassen-<版本>.jar`，放进服务端 `plugins/` 目录，重启服务器。
+   最新版本的 `TsukikageKassen-<版本>.jar`，放进服务端 `plugins/` 目录，重启服务器。
 2. 首次启动会在 `plugins/TsukikageKassen/` 生成 `config.yml`、`weapons.yml`、`characters.yml`、`messages.yml`、五份 `sengoku*.yml` 与模板目录 `moonmaps/`。
 3. 控制台出现下面这行即加载成功（`v` 后面是实际版本号）：
 
@@ -585,8 +585,16 @@ Bukkit / NMS 引用）、`checkParamKeys`（技能读取的参数键必须在校
 `offlineCheck`（`tools/` 下全部离线断言）。
 
 推送到 `main` 后 CI 跑的就是同一条 `./gradlew build`，不再额外手写编译命令。产物 jar 不进仓库：
-构建结果上传成 Actions artifact，正式发布的包挂在 GitHub Release 资产上，需要成品直接去 Release 下载。
+构建结果上传成 Actions artifact（保留 14 天），正式发布的包由 Release 工作流挂到 GitHub Release
+资产上，需要成品直接去 Release 下载。工作流里的 action 按 commit SHA 固定，由 dependabot 每周提 PR 更新。
 每个版本的变更正文与产物校验值见[发版说明](docs/releases/)。
+
+### 发版
+
+1. 改 `gradle.properties` 的 `version=`，同时写一份 `docs/releases/<版本>.md`，Release 正文取自这里。
+2. 提交推送后打 tag：`git tag v<版本> && git push origin v<版本>`。
+3. Release 工作流会先核对 tag 与 `version=` 是否一致、重跑三道护栏，再把
+   `TsukikageKassen-<版本>.jar` 挂到 Release 上。对不上就直接失败，避免发出名不副实的包。
 
 ### 离线脚本（无网络、无 Gradle 时）
 
@@ -595,8 +603,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File build-offline.ps1 -LibsDirs 
 ```
 
 只需要 JDK 21 与一份 paper-api 1.21.4 jar（再加 adventure 系列的 api / key / minimessage）。
-脚本会跑同样的护栏、编译全部源文件、打包到 `build/dist/tsukikage-kassen-<版本>.jar`
-（与 Gradle 的 `build/libs/tsukikage-kassen-<版本>.jar` 同名同内容）；
+脚本会跑同样的护栏、编译全部源文件、打包到 `build/dist/TsukikageKassen-<版本>.jar`
+（与 Gradle 的 `build/libs/TsukikageKassen-<版本>.jar` 同名同内容）；
 版本号唯一来源是 `gradle.properties` 的 `version=`（`plugin.yml` 占位符、jar 文件名、启动日志都由它派生）。
 
 ### 离线断言（无需启动服务器）

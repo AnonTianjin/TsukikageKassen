@@ -53,7 +53,7 @@ if (Test-Path $propsFile) {
     $match = Select-String -Path $propsFile -Pattern '^\s*version\s*=\s*(.+)$' | Select-Object -First 1
     if ($match) { $version = $match.Matches[0].Groups[1].Value.Trim() }
 }
-$jarPath = Join-Path $distDir ("tsukikage-kassen-{0}.jar" -f $version)
+$jarPath = Join-Path $distDir ("TsukikageKassen-{0}.jar" -f $version)
 
 if (-not $JavaHome -or -not (Test-Path (Join-Path $JavaHome "bin\javac.exe"))) {
     throw "javac not found. Set JAVA_HOME to a JDK 21 (current: $JavaHome)"

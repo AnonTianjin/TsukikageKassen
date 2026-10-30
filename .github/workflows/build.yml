@@ -3,8 +3,10 @@ name: Build
 # 构建护栏 CI：与本地 build.gradle.kts 的两道护栏（core 纯净 / 参数键收录）
 # 和 tools/ 下的离线断言测试保持同一套判定，push 与 PR 都跑。
 #
-# 产物 jar 不进仓库：每次构建上传成 Actions artifact（保留期由 GitHub 决定），
-# 正式发布的 jar 挂在 GitHub Release 资产上，本地构建走 build/libs/ 或 build/dist/。
+# 产物 jar 不进仓库：每次构建上传成 Actions artifact（保留 14 天），
+# 正式发布的 jar 由 release.yml 挂到 GitHub Release 资产上，本地构建走 build/libs/ 或 build/dist/。
+#
+# action 全部按 commit SHA 固定，后面的注释是它对应的版本，由 dependabot 提 PR 更新。
 
 on:
   push:
@@ -15,20 +17,31 @@ on:
 permissions:
   contents: read
 
+# 同一分支连推时取消上一轮，只跑最新的提交。
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
-    runs-on: ubuntu-latest
+    # 固定 runner 镜像：ubuntu-latest 会随 GitHub 迁移换内核与预装工具链。
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up JDK 21
-        uses: actions/setup-java@v6
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         with:
           distribution: temurin
           java-version: '21'
 
+      # gradle-wrapper.jar 是仓库里的二进制、由 CI 直接执行，先校验它的官方校验和。
+      - name: Validate Gradle wrapper
+        uses: gradle/actions/wrapper-validation@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v6
+        uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
 
       # gradle build = 编译全部源文件 + 三道护栏：
       #   checkCorePurity（core 层禁 Bukkit/NMS）
@@ -38,9 +51,30 @@ jobs:
       - name: Gradle build
         run: ./gradlew build --no-daemon
 
+      # 产物信息写进 Actions 摘要，评审时不用翻日志找 jar 名和校验值。
+      - name: Summarize jar
+        id: jar
+        run: |
+          set -euo pipefail
+          version=$(sed -n 's/^version=//p' gradle.properties | head -n 1)
+          jar="build/libs/TsukikageKassen-${version}.jar"
+          {
+            echo "### 构建通过"
+            echo ""
+            echo "| 项 | 值 |"
+            echo "| --- | --- |"
+            echo "| 版本 | ${version} |"
+            echo "| 产物 | $(basename "$jar") |"
+            echo "| 大小 | $(stat -c %s "$jar") 字节 |"
+            echo "| SHA256 | \`$(sha256sum "$jar" | cut -d' ' -f1)\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
       - name: Upload jar
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: TsukikageKassen
-          path: build/libs/*.jar
-          if-no-files-found: ignore
+          name: TsukikageKassen-${{ steps.jar.outputs.version }}
+          path: build/libs/TsukikageKassen-*.jar
+          # 没打出 jar 就是构建失败，不能让空 artifact 也显示成功。
+          if-no-files-found: error
+          retention-days: 14

@@ -1,0 +1,15 @@
+version: 2
+
+# 工作流里的 action 都按 commit SHA 固定，版本号只活在注释里。这里让 dependabot
+# 每周把这些 SHA 连注释一起提上来，省掉手工比对 release 页的活。
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: ci
+
+  # Gradle 侧暂不交给 dependabot：paper-api 是 -SNAPSHOT 坐标，版本字符串不动而内容会变，
+  # 提上来的 PR 既没法用也没法拒。依赖升级仍然手动做。

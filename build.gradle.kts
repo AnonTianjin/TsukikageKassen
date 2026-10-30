@@ -42,6 +42,12 @@ tasks.test {
     useJUnitPlatform()
 }
 
+// 产物名统一成 TsukikageKassen-<版本>.jar：Release 资产、README 安装说明、离线脚本
+// 都写这个名字，大小写只在这里定义一次，改版本号不会牵扯到文件名。
+tasks.jar {
+    archiveBaseName.set("TsukikageKassen")
+}
+
 // ---------------------------------------------------------------------------
 // 兼容护栏（计划 §5.6）：core 层必须是纯 Java，禁止触碰 Bukkit / Paper / NMS。
 // 违反即构建失败，这样"升级只改适配层"才是可验证的承诺而不是口号。
