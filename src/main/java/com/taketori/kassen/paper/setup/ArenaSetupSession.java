@@ -2,6 +2,7 @@ package com.taketori.kassen.paper.setup;
 
 import com.taketori.kassen.TaketoriPlugin;
 import com.taketori.kassen.paper.match.ArenaDef;
+import com.taketori.kassen.paper.match.ArenaManager;
 import com.taketori.kassen.paper.match.room.RoomManager;
 import org.bukkit.entity.Player;
 
@@ -64,18 +65,12 @@ public final class ArenaSetupSession {
             sendChecklist(admin);
             return null;
         }
-        var arenaManager = plugin.arena();
-        ArenaDef def = arenaManager.get(id);
-        if (def == null) {
-            def = arenaManager.create(id);
-            if (def == null) {
-                admin.sendMessage(plugin.config().messages().get("room.arena-bad-id"));
-                return null;
-            }
-            arenaManager.save();
-        }
-        if (!arenaManager.select(uuid, id)) {
-            admin.sendMessage(plugin.config().messages().get("room.arena-not-found", "id", id));
+        // 先把「能不能开始」全部判完，再动 arena 数据：
+        // 早期版本是「先 create 场地、再校验模板」，于是模板不存在时场地已被写进
+        // arenas.yml，管理员每失败重试一次就多一个空场地，/taketori doctor 与
+        // 菜单里全是垃圾条目。
+        if (!ArenaManager.isValidId(id)) {
+            admin.sendMessage(plugin.config().messages().get("room.arena-bad-id"));
             return null;
         }
         String template = templateName == null || templateName.isBlank() ? id : templateName;
@@ -101,6 +96,18 @@ public final class ArenaSetupSession {
         if (!RoomManager.isWorldFolder(templateDir)) {
             admin.sendMessage(plugin.config().messages().get("room.moonmap-not-world",
                     "template", template));
+            return null;
+        }
+        var arenaManager = plugin.arena();
+        if (arenaManager.get(id) == null) {
+            if (arenaManager.create(id) == null) {
+                admin.sendMessage(plugin.config().messages().get("room.arena-bad-id"));
+                return null;
+            }
+            arenaManager.save();
+        }
+        if (!arenaManager.select(uuid, id)) {
+            admin.sendMessage(plugin.config().messages().get("room.arena-not-found", "id", id));
             return null;
         }
         Session session = new Session(id, template);

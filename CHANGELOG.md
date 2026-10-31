@@ -11,6 +11,9 @@
 
 ### 修复
 
+- `arena setup` 改成**先校验模板、再建场地**。原顺序是「建场地并保存 → 载入模板」，模板不存在或
+  放错层级时场地已经写进 `arenas.yml`：每失败重试一次就多一个空场地，`/taketori doctor`、菜单与
+  列表里全是垃圾条目。现在所有前置校验（场地 id、模板名、模板目录形态）都通过后才会落盘。
 - `arena setup` 判定模板时不再要求 `level.dat`：26.1 起主世界按维度落盘，模板本身就是
   `moonmaps/<名>/region|data|entities`（没有 `level.dat`），旧判定会把所有 26.1 模板打回，
   场地根本划不了。改为与 `moonmap load` 同一口径（`RoomManager.isWorldFolder`，该方法随之放开
