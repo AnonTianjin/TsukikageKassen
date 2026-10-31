@@ -8,6 +8,7 @@ import com.taketori.kassen.paper.match.room.RoomManager;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import org.bukkit.GameMode;
 import org.bukkit.Location;
+import org.bukkit.World;
 import org.bukkit.block.Block;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.YamlConfiguration;
@@ -39,6 +40,8 @@ public final class LobbyManager {
 
     private CuboidRegion region;
     private Location spawn;
+    /** 大厅落点缺失的告警只打一次，避免每次退房都刷警告。 */
+    private boolean warnedLobbyFallback;
     private final List<LobbySign> signs = new CopyOnWriteArrayList<>();
     /** 实时房间状态牌（绑定模板；文本每秒刷新，点击直接加入/旁观/创建）。 */
     private final List<StatusSign> statusSigns = new CopyOnWriteArrayList<>();
@@ -75,11 +78,17 @@ public final class LobbyManager {
 
         ConfigurationSection spawnSection = yaml.getConfigurationSection("spawn");
         if (spawnSection != null && spawnSection.isString("world")) {
-            var world = org.bukkit.Bukkit.getWorld(spawnSection.getString("world"));
+            String spawnWorldName = spawnSection.getString("world");
+            var world = org.bukkit.Bukkit.getWorld(spawnWorldName);
             if (world != null) {
                 spawn = new Location(world,
                         spawnSection.getDouble("x"), spawnSection.getDouble("y"), spawnSection.getDouble("z"),
                         (float) spawnSection.getDouble("yaw"), (float) spawnSection.getDouble("pitch"));
+            } else {
+                // 世界没加载就是没有落点：不吭声会让退房时静默不传送（人留在已回收的对局世界里）
+                plugin.getLogger().warning("[lobby] lobby.yml 里的出生点世界 " + spawnWorldName
+                        + " 没有加载，退房时先送回服务器主世界出生点。请确认这个世界在 bukkit.yml 的 worlds 里，"
+                        + "或站到大厅里重新执行 /taketori lobby set。");
             }
         }
 
@@ -106,6 +115,10 @@ public final class LobbyManager {
         }
         plugin.getLogger().info("已载入大厅：出生点 " + (spawn == null ? "未设置" : "已设置")
                 + " / 告示牌 " + signs.size() + " 个");
+        if (spawn == null) {
+            plugin.getLogger().warning("[lobby] 大厅出生点未设置：退房/结算时会先送回服务器主世界出生点，"
+                    + "站到大厅位置执行 /taketori lobby set 才能真正回大厅。");
+        }
     }
 
     public void save() {
@@ -587,7 +600,32 @@ public final class LobbyManager {
 
     /** 把玩家送到大厅，并清掉技能残留状态。 */
     public void sendToLobby(Player player) {
-        sendToLocation(player, spawn());
+        sendToLocation(player, spawnOrFallback());
+    }
+
+    /**
+     * 大厅落点；未设置或所在世界已卸载时回落到服务器主世界出生点。
+     *
+     * <p>{@link #spawn()} 为 {@code null} 时直接不传送，玩家会留在正在被回收的对局世界里
+     * （世界卸载失败 → 卡在半空/虚空，且下次重试仍失败）。退房是必经路径，宁可送到主世界
+     * 出生点并告警，也不能把人丢在原地。</p>
+     */
+    private Location spawnOrFallback() {
+        Location configured = spawn();
+        if (configured != null && configured.getWorld() != null) {
+            return configured;
+        }
+        if (!warnedLobbyFallback) {
+            warnedLobbyFallback = true;
+            plugin.getLogger().warning("[lobby] 没有可用的返回落点，已改送主世界出生点"
+                    + "（站到大厅位置执行 /taketori lobby set 可修正）。");
+        }
+        for (World world : org.bukkit.Bukkit.getWorlds()) {
+            if (world != null) {
+                return world.getSpawnLocation();
+            }
+        }
+        return null;
     }
 
     /**
@@ -606,7 +644,14 @@ public final class LobbyManager {
         }
         clearTransient(player);
         if (target != null && target.getWorld() != null) {
-            player.teleport(target);
+            try {
+                player.teleport(target);
+            } catch (RuntimeException teleportError) {
+                // 落点世界在传送瞬间被卸载（房间回收/模板写回）时 Bukkit 会抛异常：
+                // 吞掉并记日志，后面的清场与记分板还原照做，别让一个人把整队送回流程打断
+                plugin.getLogger().log(Level.WARNING, "[lobby] 由 " + describe(player.getLocation())
+                        + " 传送到 " + describe(target) + " 失败：" + teleportError.getMessage());
+            }
         }
         if (player.getGameMode() == GameMode.SPECTATOR) {
             player.setGameMode(GameMode.SURVIVAL);
@@ -621,6 +666,16 @@ public final class LobbyManager {
         } else if (player.isOnline()) {
             player.setScoreboard(org.bukkit.Bukkit.getScoreboardManager().getMainScoreboard());
         }
+    }
+
+    /** 位置的可读描述（日志用）：世界名 + 取整坐标，仅供排障定位。 */
+    private static String describe(Location location) {
+        if (location == null) {
+            return "null";
+        }
+        String worldName = location.getWorld() == null ? "?" : location.getWorld().getName();
+        return worldName + "(" + location.getBlockX() + "," + location.getBlockY() + ","
+                + location.getBlockZ() + ")";
     }
 
     /**

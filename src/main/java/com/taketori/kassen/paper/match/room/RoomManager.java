@@ -126,6 +126,11 @@ public final class RoomManager {
         if (saved == null || saved.getWorld() == null) {
             return null;
         }
+        // World 对象在卸载后仍非 null（只是不再注册）：必须按名字回查，否则会把玩家传送进
+        // 已卸载的世界——Bukkit 直接抛异常，整队送回流程会在第一个人身上中断
+        if (Bukkit.getWorld(saved.getWorld().getName()) == null) {
+            return null;
+        }
         return saved.clone();
     }
     /** 房间创建序号（世界名 kassen_<序号>；启动时接续历史最大值，避免与待删除的旧文件夹冲突）。 */
@@ -1044,10 +1049,21 @@ public final class RoomManager {
                     plugin.lobby().sendToLobby(player);
                 }
                 playerRooms.remove(uuid);
+                entryPoints.remove(uuid);
                 plugin.spectator().forgetQuietly(uuid);
             }
         } else {
-            playerRooms.entrySet().removeIf(entry -> entry.getValue() == room);
+            List<UUID> detached = new ArrayList<>();
+            playerRooms.entrySet().removeIf(entry -> {
+                if (entry.getValue() != room) {
+                    return false;
+                }
+                detached.add(entry.getKey());
+                return true;
+            });
+            for (UUID uuid : detached) {
+                entryPoints.remove(uuid);
+            }
         }
         plugin.spectator().clearAudienceOfRoom(room);
         room.shutdown();
@@ -1064,6 +1080,15 @@ public final class RoomManager {
             return;
         }
         World world = Bukkit.getWorld(worldName);
+        if (world != null && !world.getPlayers().isEmpty()) {
+            // 卸载带人的世界必然失败（Bukkit 返回 false），随后就是「5 秒后重试」无限循环，
+            // 人卡在已废弃的房间世界里。先把人送出去再卸载，只可能在落点也失效时才会漏。
+            for (Player occupant : new java.util.ArrayList<>(world.getPlayers())) {
+                plugin.getLogger().warning("[room " + room.id() + "] 世界 " + worldName
+                        + " 卸载前仍有玩家 " + occupant.getName() + "，先送回大厅");
+                plugin.lobby().sendToLobby(occupant);
+            }
+        }
         if (world != null && !Bukkit.unloadWorld(world, false)) {
             if (attemptsLeft <= 1) {
                 plugin.getLogger().warning("[room " + room.id() + "] 世界 " + worldName
@@ -1380,6 +1405,9 @@ public final class RoomManager {
         plugin.characterMenu().cancelForce(uuid);
         plugin.playerMenu().cancelTeamForce(uuid);
         GameRoom room = playerRooms.remove(uuid);
+        // 入口位置只服务于「结算时送回进房前的位置」，人一旦离开房间就不再需要；
+        // 不清会随玩家进出无限累积（这张表没有 TTL，也不随房间销毁回收）。
+        entryPoints.remove(uuid);
         if (room == null) {
             return null;
         }
@@ -1435,7 +1463,18 @@ public final class RoomManager {
      * 只移除指向目标房间的条目，不影响其他并发房间。
      */
     public void detachRoom(GameRoom target) {
-        playerRooms.entrySet().removeIf(entry -> entry.getValue() == target);
+        List<UUID> detached = new ArrayList<>();
+        playerRooms.entrySet().removeIf(entry -> {
+            if (entry.getValue() != target) {
+                return false;
+            }
+            detached.add(entry.getKey());
+            return true;
+        });
+        // 房间没了，它记下的入口位置也就没用了：这张表没有 TTL，不跟着清会一直涨。
+        for (UUID uuid : detached) {
+            entryPoints.remove(uuid);
+        }
     }
 
     // ---------------------------------------------------------------- 断线背包暂存

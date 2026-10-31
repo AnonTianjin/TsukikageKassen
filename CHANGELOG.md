@@ -5,6 +5,37 @@
 
 ---
 
+## 2.2.4 · 退房回大厅的落点兜底（2026-11-01）
+
+服主报的「对局结束回到大厅，人还在原来的世界没被传走」，根因是落点为空时静默不传送。
+2.2.0 移植时把原版 `LobbyManager.returnPoint()` 的兜底丢掉了：`spawn` 为 `null`
+（`lobby.yml` 的 `spawn.world` 那个世界没在 `bukkit.yml` 里注册、或干脆没设过落点）时，
+`sendToLocation` 只做清场、不传送——玩家就留在正被回收的对局世界里，而世界里有玩家时
+`Bukkit.unloadWorld` 必然失败，于是每 5 秒重试一次，永远卡在那儿。
+
+### 修复
+
+- `LobbyManager.spawnOrFallback()`：落点不可用时回落到服务器第一个世界的出生点，
+  并只告警一次说明该怎么修（站到大厅里执行 `/taketori lobby set`）。这是把原版
+  `returnPoint()` 的语义补回来，不是新设计。
+- `LobbyManager.load()`：`lobby.yml` 里配了 `spawn.world` 但那个世界没加载时打 warning，
+  提示去检查 `bukkit.yml` 的 `worlds:`；落点完全没设置时再打一条。
+- `LobbyManager.sendToLocation()`：`player.teleport` 包 `try/catch (RuntimeException)`，
+  传送失败记 warning 后继续清药水、解除旁观、还原记分板——不再因为一次传送异常把后续收尾全打断。
+- `GameRoom.endCleanup()`：逐人 `try/catch`，一个人回程出错只记
+  `[room <id>] 结算送回大厅时对 <名> 出错：…` 并继续下一个，不会让整队都回不去。
+
+### 修复（世界回收与入口位置）
+
+- `RoomManager.unloadAndDelete()`：卸载前若世界内仍有玩家，逐个 warning
+  `[room <id>] 世界 <名> 卸载前仍有玩家 <名>，先送回大厅` 并真的送走——否则
+  `unloadWorld` 一直返回 false，「5 秒后重试」会变成死循环。
+- `RoomManager.entryPointOf()`：除 `saved.getWorld() == null` 外再按世界名回查
+  `Bukkit.getWorld(name)`（Bukkit 的 `World` 对象在卸载后仍非 null，原来会把玩家传进已卸载世界）。
+- `RoomManager.entryPoints` 补上清理路径（`leave`、`destroyRoom`、`detachRoom`）：
+  这张表原来只增不减，玩家反复进出会一直累积。`leaveForRejoin` 刻意不清——
+  重连窗口内还要用它回原位。
+
 ## 2.2.3 · 房间世界空图的根因修复（2026-10-31）
 
 2.2.1 把「带 `dimensions/` 的目录不算世界」当成硬规则，堵住了把整个存档根目录丢进

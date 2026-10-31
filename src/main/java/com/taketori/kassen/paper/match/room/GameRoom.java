@@ -3044,11 +3044,17 @@ public final class GameRoom {
             if (returnToLobby) {
                 // 回程落点：默认送回进房前所在的位置（多世界服务器上玩家可能从资源世界被拽进来）；
                 // 关掉 lobby.return-to-entry、或原位置的世界已在对局期间被卸载时，回落到大厅出生点。
-                Location entry = plugin.config().lobbyReturnToEntry() ? manager.entryPointOf(uuid) : null;
-                if (entry != null) {
-                    plugin.lobby().sendToLocation(player, entry);
-                } else {
-                    plugin.lobby().sendToLobby(player);
+                // 逐人兜底：任何一个人传送失败都不能连累同队其他人回不去。
+                try {
+                    Location entry = plugin.config().lobbyReturnToEntry() ? manager.entryPointOf(uuid) : null;
+                    if (entry != null) {
+                        plugin.lobby().sendToLocation(player, entry);
+                    } else {
+                        plugin.lobby().sendToLobby(player);
+                    }
+                } catch (RuntimeException returnError) {
+                    plugin.getLogger().warning("[room " + id() + "] 结算送回大厅时对 "
+                            + player.getName() + " 出错：" + returnError);
                 }
             }
         }
