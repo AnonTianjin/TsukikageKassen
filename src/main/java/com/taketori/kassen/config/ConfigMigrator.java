@@ -16,7 +16,7 @@ import java.util.List;
 public final class ConfigMigrator {
 
     /** 当前配置结构版本；每次改动默认值或键名都要 +1，并在下面加一段迁移。 */
-    public static final int CURRENT_VERSION = 11;
+    public static final int CURRENT_VERSION = 12;
 
     private final TaketoriPlugin plugin;
 
@@ -41,7 +41,7 @@ public final class ConfigMigrator {
             if (qMode == null || qMode.isBlank() || "held-slot".equalsIgnoreCase(qMode)) {
                 config.set("input.q-mode", "drop");
                 notes.add("input.q-mode: " + (qMode == null || qMode.isBlank() ? "(缺失)" : qMode)
-                        + " → drop（Q 现在会触发武器 q 槽声明的技能，例如月读/将军/盾胁/月镜/旗鱼的模式切换）");
+                        + " → drop（Q 现在会触发武器 q 槽声明的技能，例如月读/将军/盾胁/月镜/冰棘鱼的模式切换）");
             }
         }
 
@@ -236,6 +236,112 @@ public final class ConfigMigrator {
                     + "想要 CS 式不对称就把防守方调高、系数调到 0.6667）");
             notes.add("lobby.return-to-entry: 新增 true（对局结束回到进房间前的位置；"
                     + "写 false 则一律回大厅出生点）");
+        }
+
+        if (version < 12) {
+            // v11 → v12：拆包从"连点 10 下"改成"按住左键读条"，并接入队伍商店与加时赛。
+            // 老的 bomb.defuse-clicks 在 2.1.0 之后没有任何读取点（ConfigManager 已删除 bombClicks()），
+            // 留着只会让服主去调一个死键，所以这里直接删掉并打一条警告说明它去哪了。
+            if (config.isSet("bomb.defuse-clicks")) {
+                config.set("bomb.defuse-clicks", null);
+                plugin.getLogger().warning("bomb.defuse-clicks 已废弃：2.1.0 起拆包改为「按住左键读条」，"
+                        + "该键已从 config.yml 删除（对应新键见 bomb.defuse-seconds-bare / defuse-seconds-clipper）");
+            }
+            // 拆弹读条：四项时间 + 两项守包结算分。
+            if (!config.isSet("bomb.activation-delay-seconds")) {
+                config.set("bomb.activation-delay-seconds", 40);
+            }
+            if (!config.isSet("bomb.defuse-time-limit-seconds")) {
+                config.set("bomb.defuse-time-limit-seconds", 110);
+            }
+            if (!config.isSet("bomb.defuse-seconds-bare")) {
+                config.set("bomb.defuse-seconds-bare", 10);
+            }
+            if (!config.isSet("bomb.defuse-seconds-clipper")) {
+                config.set("bomb.defuse-seconds-clipper", 6);
+            }
+            if (!config.isSet("bomb.blue-keep-score")) {
+                config.set("bomb.blue-keep-score", 200);
+            }
+            if (!config.isSet("bomb.red-consolation-score")) {
+                config.set("bomb.red-consolation-score", 50);
+            }
+            // 队伍商店：商人 NPC 位置留空（world 空串 = 不生成，用指令现场记录）。
+            if (!config.isSet("shop.npc.enabled")) {
+                config.set("shop.npc.enabled", true);
+            }
+            if (!config.isSet("shop.npc.red.name")) {
+                config.set("shop.npc.red.name", "§c红队商人");
+            }
+            if (!config.isSet("shop.npc.red.world")) {
+                config.set("shop.npc.red.world", "");
+            }
+            if (!config.isSet("shop.npc.red.x")) {
+                config.set("shop.npc.red.x", 0.0);
+            }
+            if (!config.isSet("shop.npc.red.y")) {
+                config.set("shop.npc.red.y", 0.0);
+            }
+            if (!config.isSet("shop.npc.red.z")) {
+                config.set("shop.npc.red.z", 0.0);
+            }
+            if (!config.isSet("shop.npc.red.yaw")) {
+                config.set("shop.npc.red.yaw", 0.0);
+            }
+            if (!config.isSet("shop.npc.blue.name")) {
+                config.set("shop.npc.blue.name", "§9蓝队商人");
+            }
+            if (!config.isSet("shop.npc.blue.world")) {
+                config.set("shop.npc.blue.world", "");
+            }
+            if (!config.isSet("shop.npc.blue.x")) {
+                config.set("shop.npc.blue.x", 0.0);
+            }
+            if (!config.isSet("shop.npc.blue.y")) {
+                config.set("shop.npc.blue.y", 0.0);
+            }
+            if (!config.isSet("shop.npc.blue.z")) {
+                config.set("shop.npc.blue.z", 0.0);
+            }
+            if (!config.isSet("shop.npc.blue.yaw")) {
+                config.set("shop.npc.blue.yaw", 0.0);
+            }
+            if (!config.isSet("shop.defuse-clipper.cost")) {
+                config.set("shop.defuse-clipper.cost", 30);
+            }
+            if (!config.isSet("shop.defuse-clipper.max-per-player")) {
+                config.set("shop.defuse-clipper.max-per-player", 2);
+            }
+            if (!config.isSet("shop.land-mine.cost")) {
+                config.set("shop.land-mine.cost", 40);
+            }
+            if (!config.isSet("shop.land-mine.max-per-team")) {
+                config.set("shop.land-mine.max-per-team", 2);
+            }
+            if (!config.isSet("shop.land-mine.kill-radius")) {
+                config.set("shop.land-mine.kill-radius", 5.0);
+            }
+            if (!config.isSet("shop.land-mine.trigger-radius")) {
+                config.set("shop.land-mine.trigger-radius", 3.0);
+            }
+            // 加时赛：常规时间打完比分未达标时投票打一局纯 PVP。
+            if (!config.isSet("overtime.enabled")) {
+                config.set("overtime.enabled", true);
+            }
+            if (!config.isSet("overtime.duration-seconds")) {
+                config.set("overtime.duration-seconds", 60);
+            }
+            if (!config.isSet("overtime.kill-score")) {
+                config.set("overtime.kill-score", 1);
+            }
+            notes.add("bomb: 拆包改为读条（2.1.0 新增 activation-delay-seconds=40 / defuse-time-limit-seconds=110"
+                    + " / defuse-seconds-bare=10 / defuse-seconds-clipper=6 / blue-keep-score=200 / red-consolation-score=50）"
+                    + "——旧键 defuse-clicks 已删除：站到包点 4.5 格内左键开始读条，空手 10 秒、持拆弹钳 6 秒拆开，超时算蓝队守住");
+            notes.add("shop: 新增队伍商店（2.1.0 新增 npc 段 + defuse-clipper.cost=30 / max-per-player=2"
+                    + " + land-mine.cost=40 / max-per-team=2 / kill-radius=5.0 / trigger-radius=3.0）"
+                    + "——商人位置默认留空，用 /taketori shop setnpc <red|blue> 现场记录");
+            notes.add("overtime: 新增加时赛（2.1.0 新增 enabled=true / duration-seconds=60 / kill-score=1）"
+                    + "——比分未达标时投票加时，纯 PVP 只算人头");
         }
 
 

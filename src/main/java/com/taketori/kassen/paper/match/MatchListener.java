@@ -3,8 +3,10 @@ package com.taketori.kassen.paper.match;
 import com.taketori.kassen.TaketoriPlugin;
 import com.taketori.kassen.core.match.MatchRules;
 import com.taketori.kassen.core.match.TeamId;
+import com.taketori.kassen.paper.item.PDCKeys;
 import com.taketori.kassen.paper.match.room.GameRoom;
 import org.bukkit.Location;
+import org.bukkit.Material;
 import org.bukkit.block.Block;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.LivingEntity;
@@ -22,6 +24,8 @@ import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.player.PlayerRespawnEvent;
 import org.bukkit.inventory.EquipmentSlot;
+import org.bukkit.inventory.ItemStack;
+import org.bukkit.persistence.PersistentDataType;
 
 /**
  * 对局相关的事件监听：击杀计分、死亡旁观、复活、退出清理。
@@ -48,13 +52,14 @@ public final class MatchListener implements Listener {
     }
 
     /**
-     * 拆包交互：右键包点拉杆 = 拆一下。
+     * 拆包交互：<b>左键</b>包点 = 开始/继续读条，<b>右键</b> = 中断。
      *
-     * <p>用 {@code ignoreCancelled = false} 是必须的：拉杆本身就是可交互方块，
+     * <p>用 {@code ignoreCancelled = false} 是必须的：TNT 本身可被点燃、可被交互，
      * 别的插件（保护插件、菜单插件）完全可能把事件取消掉，取消之后玩家点它照样没有反应——
      * 但这个方块是插件自己放的目标物，取消与否都得算数。</p>
      *
-     * <p>左键也吞掉：原版左键打拉杆会把它打掉，包点一消失这局就没有目标了。</p>
+     * <p>左右键分工而不是「右键一下读一次」：读条模型里进度只属于当前拆弹人，
+     * 右键必须能随时中断（换人、撤退），否则拆到一半被顶掉的人没法主动放弃。</p>
      */
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = false)
     public void onBombInteract(PlayerInteractEvent event) {
@@ -75,11 +80,63 @@ public final class MatchListener implements Listener {
             return;
         }
         event.setCancelled(true);
-        // 只认主手的右键：副手右键会连着触发两次，进度会翻倍
-        if (event.getAction() == Action.RIGHT_CLICK_BLOCK
-                && event.getHand() == EquipmentSlot.HAND
-                && bomb.click(player) == BombObjective.ClickResult.DEFUSED) {
-            room.finish(TeamId.RED);
+        // 只认主手：副手也会触发一次，进度会按两次累加
+        if (event.getHand() != EquipmentSlot.HAND) {
+            return;
+        }
+        if (event.getAction() == Action.LEFT_CLICK_BLOCK) {
+            // 读条是每秒累加的，这里只负责「把这个人登记成拆弹人」
+            if (bomb.startDefuse(player) && bomb.isDefused()) {
+                room.finish(TeamId.RED);
+            }
+        } else {
+            bomb.cancelDefuse(player);
+        }
+    }
+
+    /**
+     * 布置地雷：主手拿着带 {@code land_mine} 标记的绊线钩右键方块。
+     *
+     * <p>落点取点击面的相邻方块（{@code getRelative(face)}）而不是被点方块本身：
+     * 玩家通常是对着地面右键，直接替换地面会把地形挖出一个洞。</p>
+     */
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = false)
+    public void onMinePlace(PlayerInteractEvent event) {
+        if (event.getAction() != Action.RIGHT_CLICK_BLOCK
+                || event.getHand() != EquipmentSlot.HAND) {
+            return;
+        }
+        Block clicked = event.getClickedBlock();
+        if (clicked == null) {
+            return;
+        }
+        Player player = event.getPlayer();
+        ItemStack hand = player.getInventory().getItemInMainHand();
+        if (hand.getType() != Material.TRIPWIRE_HOOK) {
+            return;
+        }
+        if (hand.getItemMeta() == null
+                || !hand.getItemMeta().getPersistentDataContainer()
+                .has(PDCKeys.landMine(), PersistentDataType.BYTE)) {
+            return;
+        }
+        GameRoom room = plugin.rooms().roomOf(player);
+        if (room == null) {
+            return;
+        }
+        event.setCancelled(true);
+        Location target = clicked.getRelative(event.getBlockFace()).getLocation();
+        if (!room.placeMine(player, target)) {
+            // 布设被拒（不在对局 / 不是蓝队 / 已达上限）：手上的地雷不能被白白吞掉
+            return;
+        }
+        // 一枚地雷对应一个绊线钩：布置成功就消耗一个
+        int amount = hand.getAmount();
+        if (amount <= 1) {
+            player.getInventory().setItemInMainHand(null);
+        } else {
+            hand.setAmount(amount - 1);
+            player.getInventory().setItemInMainHand(hand);
         }
     }
 
@@ -145,6 +202,9 @@ public final class MatchListener implements Listener {
             event.setKeepLevel(true);
             event.setDroppedExp(0);
         }
+        // 拆弹钳是一次性特权：死了就抹掉，keepInventory 也不留情。
+        // 否则「花 30 分买的钳子能用到对局结束」等于拆弹没有成本，商店就没意义了。
+        room.removeClippers(victim);
         // 跨局累计：死亡数（被玩家、月人、环境杀死都算）
         plugin.stats().add(victim.getName(), StatsTracker.Stat.DEATHS, 1L);
 
@@ -155,6 +215,8 @@ public final class MatchListener implements Listener {
             if (killerTeam != null && victimTeam != null && killerTeam != victimTeam) {
                 room.addScore(killer, rules.playerKillScore(), "击杀 " + victim.getName());
                 room.addPlayerKill(killer);
+                // 加时赛只比人头：个人分已被清零，这里单独记队伍人头
+                room.addOvertimeKill(killerTeam);
                 plugin.stats().add(killer.getName(), StatsTracker.Stat.KILLS, 1L);
                 // 击杀回血（需求）：满血时不回、也不刷提示
                 double healed = healOnKill(killer, rules.playerKillHeal());

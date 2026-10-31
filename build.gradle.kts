@@ -14,20 +14,21 @@ repositories {
 }
 
 dependencies {
-    // Paper 1.21.4 的 API 坐标沿用「主.次.修订-R0.1-SNAPSHOT」的老格式。
-    compileOnly("io.papermc.paper:paper-api:1.21.4-R0.1-SNAPSHOT")
+    // 26.1 起 Paper 的 API 坐标改成「年.版本.补丁.build.N-通道」的格式，
+    // 不再有 -R0.1-SNAPSHOT 后缀；plugin.yml 的 api-version 也接受完整的 26.1.2 写法。
+    compileOnly("io.papermc.paper:paper-api:26.1.2.build.74-stable")
     // 没有 src/test/：断言全部写在 tools/ 里，由 offlineTools 以 JavaExec 直接跑，
     // 不引入 JUnit（声明了也只会得到 compileTestJava NO-SOURCE）。
 }
 
 java {
-    // Paper 1.21.4 的运行时与 API 都是 Java 21（class 文件 major 65）。
-    toolchain.languageVersion.set(JavaLanguageVersion.of(21))
+    // Paper 26.1.2 的运行时与 API 都是 Java 25（class 文件 major 69）。
+    toolchain.languageVersion.set(JavaLanguageVersion.of(25))
 }
 
 tasks.withType<JavaCompile>().configureEach {
     options.encoding = "UTF-8"
-    options.release.set(21)
+    options.release.set(25)
 }
 
 tasks.processResources {
@@ -137,11 +138,11 @@ tasks.named("check") { dependsOn(checkParamKeys) }
 //
 // 注意：java { toolchain } 只作用于 java 插件自建的 compileJava 等任务，这里手写的
 // JavaCompile / JavaExec 不受其管辖，会各自退回 Gradle 守护进程所在的 JDK。守护进程
-// 未必是 21，届时要么编译报「不支持发行版本 21」，要么运行报 UnsupportedClassVersionError。
-// 因此下面三处都必须显式绑定同一套 Java 21 工具链。
+// 未必是 25，届时要么编译报「不支持发行版本 25」，要么运行报 UnsupportedClassVersionError。
+// 因此下面三处都必须显式绑定同一套 Java 25 工具链。
 // ---------------------------------------------------------------------------
-val java21Compiler = javaToolchains.compilerFor { languageVersion.set(JavaLanguageVersion.of(21)) }
-val java21Launcher = javaToolchains.launcherFor { languageVersion.set(JavaLanguageVersion.of(21)) }
+val java25Compiler = javaToolchains.compilerFor { languageVersion.set(JavaLanguageVersion.of(25)) }
+val java25Launcher = javaToolchains.launcherFor { languageVersion.set(JavaLanguageVersion.of(25)) }
 
 val compileOfflineTools by tasks.registering(JavaCompile::class) {
     group = "verification"
@@ -150,9 +151,9 @@ val compileOfflineTools by tasks.registering(JavaCompile::class) {
     source = fileTree("tools") { include("**/*.java") }
     classpath = files(sourceSets.main.get().output, configurations.compileClasspath)
     destinationDirectory.set(layout.buildDirectory.dir("classes/offline-tools"))
-    javaCompiler.set(java21Compiler)
+    javaCompiler.set(java25Compiler)
     options.encoding = "UTF-8"
-    options.release.set(21)
+    options.release.set(25)
 }
 
 data class OfflineTool(val mainClass: String, val taskName: String, val arguments: List<String>)
@@ -169,7 +170,8 @@ val offlineTools = listOf(
     OfflineTool("TowerContestTest", "offlineTowerContest", emptyList()),
     OfflineTool("WeaponYamlCheck", "offlineWeaponYamlCheck", listOf("src/main/resources")),
     OfflineTool("WeaponYamlEditorTest", "offlineWeaponYamlEditor", emptyList()),
-    OfflineTool("WorldScopeTest", "offlineWorldScope", emptyList())
+    OfflineTool("WorldScopeTest", "offlineWorldScope", emptyList()),
+    OfflineTool("BombShopRulesTest", "offlineBombShopRules", emptyList())
 )
 
 val offlineCheck by tasks.registering {
@@ -183,7 +185,7 @@ offlineTools.forEach { tool ->
         description = "运行离线验证：${tool.mainClass}"
         dependsOn(compileOfflineTools, tasks.classes)
         mainClass.set(tool.mainClass)
-        javaLauncher.set(java21Launcher)
+        javaLauncher.set(java25Launcher)
         classpath = files(
             layout.buildDirectory.dir("classes/offline-tools"),
             sourceSets.main.get().output,

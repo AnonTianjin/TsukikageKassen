@@ -3,7 +3,7 @@
 # Usage:
 #   pwsh -File build-offline.ps1
 #   pwsh -File build-offline.ps1 -LibsDirs "<dir>","<dir2>"
-#   pwsh -File build-offline.ps1 -JavaHome "<path to JDK 21>"
+#   pwsh -File build-offline.ps1 -JavaHome "<path to JDK 25>"
 #
 # Where the dependency jars come from (first match per artifact wins, so newer versions
 # take priority). When -LibsDirs is omitted these are probed in order:
@@ -11,10 +11,10 @@
 #   <repo>\libs         -> paper-api, adventure, guava, gson, snakeyaml, ...
 #   $env:TSUKIKAGE_LIBS -> extra dirs separated by ';' (handy for a local jar cache)
 #
-# Only two things are really required: JDK 21 and a paper-api jar for 1.21.4.
-# The plugin targets Paper 1.21.4; every version-sensitive name (attributes, particles,
-# sounds, potion effects) goes through VersionAdapter's registry lookup, so the same
-# sources also compile and run on nearby 1.21.x builds.
+# Only two things are really required: JDK 25 and a paper-api jar for 26.1.2.
+# The plugin targets Paper 26.1.2 (Java 25 baseline); every version-sensitive name
+# (attributes, particles, sounds, potion effects) goes through VersionAdapter's registry
+# lookup, so the same sources also compile and run on nearby 26.x builds.
 
 param(
     [string[]]$LibsDirs = @(),
@@ -35,7 +35,7 @@ if ($LibsDirs.Count -eq 0) {
         (Join-Path $root "libs")
     ) + $envLibs | Where-Object { $_ -and (Test-Path $_) }
     if ($LibsDirs.Count -eq 0) {
-        throw "No dependency jars found. Put paper-api (1.21.x) and adventure jars into '$root\libs', or pass -LibsDirs <dir>, or set TSUKIKAGE_LIBS."
+        throw "No dependency jars found. Put paper-api (26.1.2) and adventure jars into '$root\libs', or pass -LibsDirs <dir>, or set TSUKIKAGE_LIBS."
     }
     Write-Host "[i] classpath dirs: $($LibsDirs -join ', ')"
 }
@@ -56,14 +56,15 @@ if (Test-Path $propsFile) {
 $jarPath = Join-Path $distDir ("TsukikageKassen-{0}.jar" -f $version)
 
 if (-not $JavaHome -or -not (Test-Path (Join-Path $JavaHome "bin\javac.exe"))) {
-    throw "javac not found. Set JAVA_HOME to a JDK 21 (current: $JavaHome)"
+    throw "javac not found. Set JAVA_HOME to a JDK 25 (current: $JavaHome)"
 }
 $javac = Join-Path $JavaHome "bin\javac.exe"
 $jarExe = Join-Path $JavaHome "bin\jar.exe"
 
 # ---------------------------------------------------------------- classpath
-# paper-api.jar in _mm_libs is 1.19.2 and purpur-api duplicates paper-api: both excluded.
-$excluded = @("paper-api.jar", "purpur-api-1.21.4.jar")
+# A bare paper-api.jar, the old 1.21.4 paper-api snapshot and purpur-api all duplicate the
+# versioned paper-api 26.1.2 jar: excluded so the 26.1.2 API is the one on the classpath.
+$excluded = @("paper-api.jar", "paper-api-1.21.4-R0.1-SNAPSHOT.jar", "purpur-api-1.21.4.jar")
 $seenArtifacts = @{}
 $classpathEntries = @()
 foreach ($dir in $LibsDirs) {
@@ -164,7 +165,7 @@ New-Item -ItemType Directory -Path $distDir -Force | Out-Null
 
 $sources = @(Get-ChildItem -Path $srcDir -Recurse -Filter *.java | ForEach-Object { $_.FullName })
 Write-Host ("Compiling {0} source files ..." -f $sources.Count) -ForegroundColor Cyan
-$javacArgs = @("-J-Duser.language=en", "-encoding", "UTF-8", "--release", "21", "-Xlint:-options", "-cp", $classpath, "-d", $classesDir) + $sources
+$javacArgs = @("-J-Duser.language=en", "-encoding", "UTF-8", "--release", "25", "-Xlint:-options", "-cp", $classpath, "-d", $classesDir) + $sources
 $errLog = Join-Path $root "build\javac.log"
 # 合并 stdout/stderr 写入日志：直接 & javac 会让 PowerShell 把 stderr 当成脚本异常，
 # 既吞掉真正的编译错误，也让日志为空。

@@ -7,7 +7,7 @@
 
 | 项 | 要求 |
 | --- | --- |
-| JDK | 21（toolchain 已锁，装好即可） |
+| JDK | 25（toolchain 已锁，装好即可） |
 | IDE | 任意；IntelliJ IDEA 直接打开工程 |
 | 网络 | 首次 `gradlew build` 需联网拉 Paper API（走 Maven Central / repo.papermc.io） |
 
@@ -38,7 +38,7 @@ pwsh -File build-offline.ps1
   会全部执行，CI 跑的是同一条命令；
 - **新增测试类必须登记**：在 `build.gradle.kts` 的 `offlineTools` 里补一行
   `OfflineTool("Foo", "offlineFoo", emptyList())`。漏登记不会报错，只会静默不执行；
-- 涉及游戏内行为的改动请在真机（Paper 1.21.4）上验证一遍再提 PR。
+- 涉及游戏内行为的改动请在真机（Paper 26.1.2）上验证一遍再提 PR。
 
 ## 提交约定
 

@@ -10,8 +10,8 @@
 
 | 项 | 说明 |
 | --- | --- |
-| 服务端 | Paper 1.21.4 |
-| Java | 21 |
+| 服务端 | Paper 26.1.2 |
+| Java | 25 |
 | 客户端 | 原版即可，不需要资源包或 mod |
 | 额外依赖 | 无 |
 | 许可 | MIT |
@@ -36,7 +36,7 @@ TsukikageKassen v<版本> 已启用：<武器数> 把武器 / <角色数> 个角
 | `taketori.play` | 所有人 | 玩家指令：菜单、选角色、加入队列、观战、技能查询 |
 | `taketori.admin` | OP | 管理指令：场地、大厅、分队、开局、发武器、编辑器、重载、调试 |
 
-> 插件的 `api-version` 声明为 `1.21`，服务端低于该版本会拒绝加载。
+> 插件的 `api-version` 声明为 `26.1.2`，服务端低于该版本会拒绝加载。
 
 装好之后的三种玩法，玩家只需要记住：大厅点告示牌「加入」或「降临月宫」建房，等倒计时归零就能开打。
 
@@ -214,7 +214,7 @@ c. 手头没有地图、只想先试一局：生成一张空白平坦模板：
 ```
 
 战国 3v3 的点位划分（天守阁 / 箭楼 / 铜钟 / 守卫 / 中地 / 跳跃台）用 `/taketori sengoku`，
-详见[玩法说明](#34-战国-3v3三局两胜)与[指令参考](#四指令参考)。
+详见[玩法说明](#33-三种对局模式)与[指令参考](#四指令参考)。
 
 ## 三、玩法说明
 
@@ -335,7 +335,48 @@ PVE 月人入侵：所有人同一队、不占点、玩家之间默认无伤害�
 检查是否齐全；赛制、点位与五份配置的完整说明见[战国 3v3](docs/sengoku-3v3.md)，
 配置项汇总见[配置项](#五配置项)。
 
-### 3.4 房间与匹配（月宫制）
+### 3.4 队伍商店
+
+对局中两队各有自己的商人 NPC 与 27 格商店界面，花的是局内个人积分（击杀 / 占点攒的），
+买完直接进背包：
+
+| 商品 | 队伍 | 价格 | 上限 | 效果 |
+| --- | --- | --- | --- | --- |
+| 拆弹钳 | 红队 | `shop.defuse-clipper.cost`（30） | 每人 2 把 | 背包里带着它拆包，读条从 10 秒缩到 6 秒；死亡即清空 |
+| 地雷 | 蓝队 | `shop.land-mine.cost`（40） | 每队 2 枚 | 埋成石质压力板，踩到即死，不破坏方块 |
+
+- 打开：右键商人 NPC，或 `/taketori shop`（等价 `/taketori buy`），界面按你的队伍摆放商品；
+- 快捷购买：`/taketori shop clipper`（别名 `剪刀` / `拆弹钳`）、`/taketori shop mine`（别名 `地雷`）；
+- 商人默认是村民：无敌、无 AI、静音、不推动、不受伤，每 10 秒自愈检查一次（被杀或区块重载后自动补回）；
+- 商人位置跟随大厅：`shop.npc.<red|blue>.world` 留空 = 大厅出生点所在世界，坐标全 0 = 大厅出生点坐标；
+- 管理员站到位置上执行 `/taketori shop setnpc <red|blue>` 即可把该队商人挪过来（坐标写回 config.yml）；
+- 不在进行中的对局里也能打开界面，但买不了（会提示「你不在进行中的对局中」）。
+
+### 3.5 炸弹与加时赛
+
+包点从「连点拉杆」改成 CS 式读条拆弹，时序分三个阶段：
+
+| 阶段 | 时长（默认） | 发生什么 |
+| --- | --- | --- |
+| 自由时段 | `bomb.activation-delay-seconds`（40 秒） | 双方在出生点准备，包点还是原方块 |
+| 拆弹窗口 | `bomb.defuse-time-limit-seconds`（110 秒） | 包点变 TNT；红队站进 4.5 格内左键读条，右键取消 |
+| 抢基地 | 到分出胜负 | 超时后蓝队守住，基地开放，继续按占点 / 互杀 / 清月人累计 |
+
+- 空手 10 秒（`defuse-seconds-bare`），背包里带着拆弹钳 6 秒（`defuse-seconds-clipper`）；
+- 离开包点、死亡、掉线、换队都会中断，`bomb.reset-seconds`（7 秒）内没人接手则进度归零（只提醒红队）；
+- 拆开 → 红队直接获胜；110 秒没拆完 → 蓝队 +200（`blue-keep-score`）、红队 +50（`red-consolation-score`）；
+- 场地没设包点（`/taketori arena setbomb`）就不进这套相位，仍按原来的「基地开放延迟 + 分数」判胜负；
+- 记分板显示 `包点: 未激活 / 拆除中 Ns / 蓝队守住`。
+
+时间到双方都没到目标分时进入加时赛：
+
+- 队伍比分清零（个人分与击杀保留），30 秒内投票：`/taketori overtime`（等价 `/taketori match overtime`）；
+- 任一队全员同意即开打；某队已无人时，一人投票即通过；窗口到期没通过则按「防守方守住」结算（蓝队胜）；
+- 加时 `overtime.duration-seconds`（60 秒）纯 PVP，每击杀一名敌人记 `overtime.kill-score`（默认 1）个人头，
+  记分板显示「加时人头: 红 N : 蓝 M」，结束人头多者胜，相同则平局；
+- 关掉 `overtime.enabled` 后时间到直接结算，不再投票。
+
+### 3.6 房间与匹配（月宫制）
 
 - 动态房间：房间由玩家按需创建，异步复制模板世界为专属世界，结算后自动删除回收；
   服务器最多同时 `room.max-rooms`（默认 8）个房间，每人限建 1 个；
@@ -345,7 +386,7 @@ PVE 月人入侵：所有人同一队、不占点、玩家之间默认无伤害�
 - 跨局战绩：总积分 / 胜场 / 击杀 / 拆家等写入 `data/stats.yml`，`/taketori ranks` 图形查看；
 - 菜单时钟：进服发放的道具，右键打开玩家菜单（匹配 / 队伍 / 角色 / 排行榜），丢不掉。
 
-### 3.5 多世界兼容
+### 3.7 多世界兼容
 
 给 Multiverse 之类的多世界服务器用，两项都默认收窄、可一键恢复旧行为：
 
@@ -375,6 +416,9 @@ PVE 月人入侵：所有人同一队、不占点、玩家之间默认无伤害�
 /taketori room create [模板id]     创建房间（降临月宫，异步复制模板世界）
 /taketori room delete|list         删除自己的等待房 / 房间列表
 /taketori surrender                发起/确认本队投降（对局中）
+/taketori shop [clipper|mine]      打开队伍商店 / 快捷购买拆弹钳（红队）/ 地雷（蓝队）
+/taketori buy                      同 shop（打开商店界面）
+/taketori overtime                 同意加时赛投票（等价 /taketori match overtime）
 /taketori doctor                   自检：识别链路、名字解析、配置校验、多世界范围
 ```
 
@@ -479,6 +523,8 @@ PVE 月人入侵：所有人同一队、不占点、玩家之间默认无伤害�
 /taketori pve difficulty <easy|normal|hard>      切换 PVE 难度（下一局生效）
 /taketori team <玩家> <red|blue|none>            手动分队（作用于目标玩家所在房间）
 /taketori character <玩家> <角色id|none>         指定角色（同队不能重复）
+/taketori match overtime                          同意所在房间的加时赛投票（30 秒窗口内）
+/taketori shop setnpc <red|blue>                 把该队商人 NPC 挪到当前位置（写回 config.yml）
 ```
 
 维护
@@ -512,7 +558,9 @@ PVE 月人入侵：所有人同一队、不占点、玩家之间默认无伤害�
 | `pve` | `difficulty` / `big-waves` / `elite-scaling` / `outpost` | normal / 5 波·8 精英·60 秒 / 每多 1 人 +1 级 / 三档数值 |
 | `base` | `count-per-team` / `capture-seconds` / `capture-delay-seconds` / `decay-per-second` / `multi-player-bonus` | 3（或 auto）/ 10 / 60 / 0.5 / true |
 | `lobby` | `teleport-on-join` / `takeover-worlds` / `protect` / `return-after-match` / `return-to-entry` | true / `[]`（仅大厅世界）/ true / true / true |
-| `bomb` | `defuse-clicks` / `reset-seconds` | 10 / 7（没有包点的场地不生效） |
+| `bomb` | `activation-delay-seconds` / `defuse-time-limit-seconds` / `defuse-seconds-bare` / `defuse-seconds-clipper` / `reset-seconds` / `blue-keep-score` / `red-consolation-score` | 40 / 110 / 10 / 6 / 7 / 200 / 50（没有包点的场地不生效） |
+| `shop` | `npc.enabled` / `npc.red.*` / `npc.blue.*` / `defuse-clipper.cost` / `defuse-clipper.max-per-player` / `land-mine.cost` / `land-mine.max-per-team` / `land-mine.kill-radius` / `land-mine.trigger-radius` | true / 商人名与坐标 / 30 / 2 / 40 / 2 / 5 / 3 |
+| `overtime` | `enabled` / `duration-seconds` / `kill-score` | true / 60 / 1 |
 | `worlds` | `broadcast-scope` | world（只发给消息所属世界；`all` = 全服） |
 | `menu-clock` | `enabled` / `material` / `give-on-join` / `name` / `lore` | true / CLOCK / true / … |
 | `input` | `q-mode` / `weapon-slots` / `shift-right-trigger` | drop / [0,1,2,3] / double-sneak |
@@ -602,7 +650,7 @@ Bukkit / NMS 引用）、`checkParamKeys`（技能读取的参数键必须在校
 powershell -NoProfile -ExecutionPolicy Bypass -File build-offline.ps1 -LibsDirs "<依赖 jar 目录>"
 ```
 
-只需要 JDK 21 与一份 paper-api 1.21.4 jar（再加 adventure 系列的 api / key / minimessage）。
+只需要 JDK 25 与一份 paper-api 26.1.2 jar（再加 adventure 系列的 api / key / minimessage）。
 脚本会跑同样的护栏、编译全部源文件、打包到 `build/dist/TsukikageKassen-<版本>.jar`
 （与 Gradle 的 `build/libs/TsukikageKassen-<版本>.jar` 同名同内容）；
 版本号唯一来源是 `gradle.properties` 的 `version=`（`plugin.yml` 占位符、jar 文件名、启动日志都由它派生）。
@@ -623,6 +671,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File build-offline.ps1 -LibsDirs 
 | `WeaponYamlEditorTest` | `weapons.yml` 编辑器的路径解析与注释保留 |
 | `WeaponYamlCheck` | 核对 weapons.yml / characters.yml 的材质、粒子、音效、药水、弹体、属性、技能类型与参数键 |
 | `MiniMessageClickTest` | 可点击文案（`click` / `hover`）的渲染 |
+| `BombShopRulesTest` | 炸弹相位参数、商店购买规则（队伍 / 积分 / 上限）与加时赛判定 |
 
 新增一个带 `main` 的测试类后，务必在 `offlineTools` 里补一行，漏登记不会报错，
 只会静默不执行（`compileOfflineTools` 仍会把它编译通过）。
@@ -653,13 +702,14 @@ src/main/resources/
 ├─ plugin.yml / config.yml / weapons.yml / characters.yml / messages.yml
 └─ sengoku.yml / sengoku-towers.yml / sengoku-siege.yml / sengoku-minions.yml / sengoku-energy.yml
 tools/          离线测试与校验器（无需启动服务器），清单见 build.gradle.kts 的 offlineTools
-docs/           细分文档（区域配置 / 模式判定 / 战国 3v3 / 武器设计 / 多世界），releases/ 存发版说明
+docs/           细分文档（区域配置 / 模式判定 / 商店与炸弹 / 战国 3v3 / 武器设计 / 多世界），releases/ 存发版说明
 METHOD-FLOWS.md 逐条对局的调用链与状态迁移
 build-offline.ps1  无网络环境的构建脚本
 ```
 
 上面树里最后三行是文档与脚本入口：`docs/` 下是 [区域配置](docs/regions.md)、
-[PVP / PVE 模式](docs/pvp-pve.md)、[战国 3v3](docs/sengoku-3v3.md)、
+[PVP / PVE 模式](docs/pvp-pve.md)、[队伍商店与炸弹](docs/shop-and-bomb.md)、
+[战国 3v3](docs/sengoku-3v3.md)、
 [武器设计](docs/weapons.md)、[多世界](docs/multi-world.md)，发版说明在 [docs/releases/](docs/releases/)；
 [METHOD-FLOWS.md](METHOD-FLOWS.md) 逐条记对局的调用链与状态迁移，`build-offline.ps1` 是离线构建脚本。
 

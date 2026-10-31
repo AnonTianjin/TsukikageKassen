@@ -1,7 +1,9 @@
 package com.taketori.kassen.paper.match.room;
 
 import com.taketori.kassen.TaketoriPlugin;
+import com.taketori.kassen.core.match.BombPhase;
 import com.taketori.kassen.core.match.MatchRules;
+import com.taketori.kassen.core.match.ShopRules;
 import com.taketori.kassen.core.match.TeamId;
 import com.taketori.kassen.core.match.sengoku.SengokuMode;
 import com.taketori.kassen.core.worlds.WorldScope;
@@ -20,10 +22,14 @@ import net.kyori.adventure.text.minimessage.MiniMessage;
 import org.bukkit.Bukkit;
 import org.bukkit.GameMode;
 import org.bukkit.Location;
+import org.bukkit.Material;
 import org.bukkit.World;
+import org.bukkit.block.Block;
 import org.bukkit.entity.Item;
 import org.bukkit.entity.Player;
 import org.bukkit.entity.Projectile;
+import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.scheduler.BukkitTask;
@@ -73,6 +79,8 @@ public final class GameRoom {
     }
 
     private static final MiniMessage MINI = MiniMessage.miniMessage();
+    /** 加时投票窗口：双方都同意才开，30 秒没人凑齐就按守包成功收尾。 */
+    private static final long OVERTIME_VOTE_SECONDS = 30L;
 
     private final TaketoriPlugin plugin;
     private final RoomManager manager;
@@ -113,6 +121,40 @@ public final class GameRoom {
     private double attackerMultiplier = 0.6667D;
     /** 本局的包点；场地没设包点时为 null（这局照旧只按分数判胜负）。 */
     private BombObjective bomb;
+    /**
+     * 包点相位：{@code FREE_TIME}（还没激活）→ {@code DEFUSE}（拆弹窗口）→ {@code BASE_FIGHT}（拆弹超时后的抢分阶段）。
+     *
+     * <p>只有「纯 PVP + 场地设了包点」才会离开 {@code FREE_TIME}。没包点、PVE、战国三种情况
+     * 一律停在 {@code FREE_TIME}，此时基地开放仍按 {@code base.capture-delay-seconds} 的计时口径走，
+     * 与旧行为完全一致。</p>
+     */
+    private BombPhase bombPhase = BombPhase.FREE_TIME;
+    /** 包点激活时刻（0 = 还没激活）；FREE_TIME 的倒计时以它为准。 */
+    private long bombActivatedAt;
+    /** 拆弹截止时刻：到这个点还没拆完就算拆弹超时。 */
+    private long bombDefuseDeadlineAt;
+    /** 基地开放时刻（BASE_FIGHT 起点，0 = 尚未开放）。 */
+    private long baseOpenAt;
+
+    /** 加时赛是否进行中（时间到且双方都没到目标分时，投票通过后进入）。 */
+    private boolean overtimeActive;
+    /** 加时赛开始时刻：剩余时间按它重新计时。 */
+    private long overtimeStartedAt;
+    /** 加时赛人头数：这是加时赛唯一的胜负依据（比分已被清零）。 */
+    private final Map<TeamId, Integer> overtimeKills = new EnumMap<>(TeamId.class);
+    /** 加时投票：已同意的玩家与投票窗口截止时刻。 */
+    private final Set<UUID> overtimeVotes = new HashSet<>();
+    private boolean overtimeVoteOpen;
+    private long overtimeVoteDeadline;
+
+    /** 每个玩家买过几把拆弹钳：上限按「买过的数量」算，丢掉再买也照样占名额。 */
+    private final Map<UUID, Integer> clippersBought = new HashMap<>();
+    /** 已布置的地雷：方块位置 → 布置者。位置是整数方块坐标，避免浮点误差漏掉自己那枚。 */
+    private final Map<Location, UUID> mines = new HashMap<>();
+    /** 地雷位置原本是什么方块：爆炸或清理时按它还原，别把场地模板挖成空气。 */
+    private final Map<Location, Material> mineOriginals = new HashMap<>();
+    /** 每队买过几枚地雷：上限按队算。 */
+    private final Map<TeamId, Integer> minesBought = new EnumMap<>(TeamId.class);
     /** WAITING/STARTING 阶段的中立等待者（开局分队后清空，参与者转由 teams 记录）。 */
     private final Set<UUID> waiting = ConcurrentHashMap.newKeySet();
     /** 本房对局中由插件施加过 Saturation 的玩家：收尾只清这里记过的，不动其他来源的效果。 */
@@ -1070,6 +1112,19 @@ public final class GameRoom {
         surrenderVotes.clear();
     }
 
+    /**
+     * 只清队伍比分，保留个人战绩（个人分 / 击杀 / 得分王 / 最后得分）。
+     *
+     * <p>加时赛要把比分拉回同一起跑线，但结算播报与 {@code stats().recordMatch(...)}
+     * 读的是个人数据：连个人分一起清，整场的战绩就变成全 0 了。</p>
+     */
+    private void resetTeamScores() {
+        teamScores.clear();
+        for (TeamId team : TeamId.values()) {
+            teamScores.put(team, 0);
+        }
+    }
+
     public int teamScore(TeamId team) {
         return teamScores.getOrDefault(team, 0);
     }
@@ -1547,19 +1602,37 @@ public final class GameRoom {
         }
         board.updateAll();
 
-        // 包点：纯 PVP 才埋。PVE 只有一队（没人拆也没人守），战国凭击破天守阁定胜负，
-        // 两边塞进来都只会多个永远点不动的拉杆。
+        // 包点：纯 PVP 才激活。PVE 只有一队（没人拆也没人守），战国凭击破天守阁定胜负，
+        // 两边塞进来都只会多个永远点不动的 TNT。
+        bombPhase = BombPhase.FREE_TIME;
+        bombActivatedAt = 0L;
+        bombDefuseDeadlineAt = 0L;
+        baseOpenAt = 0L;
+        overtimeActive = false;
+        overtimeVoteOpen = false;
+        overtimeVotes.clear();
+        overtimeKills.clear();
+        clippersBought.clear();
+        minesBought.clear();
+        clearMines();
         if (!isSengoku() && !isPve()) {
-            int needClicks = plugin.config().bombClicks();
-            bomb = new BombObjective(plugin, this, needClicks, plugin.config().bombResetSeconds());
-            if (bomb.place()) {
-                broadcast("<gold><bold>包已埋好！</bold> <gray>防守方（蓝）守住拉杆，"
-                        + "进攻方（红）连点 <white>" + needClicks
-                        + "</white> 下拆包即可获胜；中断会复位，队友可以接力。");
-            } else {
+            if (arena().bomb() == null) {
                 bomb = null;
                 broadcast("<yellow>本场地未设置包点（<white>/taketori arena setbomb</white>），"
                         + "本局只按分数判胜负。");
+            } else {
+                bomb = new BombObjective(plugin, this, plugin.config().bombResetSeconds());
+                int delay = plugin.config().bombActivationDelaySeconds();
+                if (delay <= 0) {
+                    // 配置成 0 = 开局立刻激活，方便测试与「快节奏」服务器
+                    activateBomb();
+                } else {
+                    broadcast("<gold><bold>包点已布防！</bold> <gray>开局 <white>" + delay
+                            + "</white> 秒后包点激活；红队拆除（空手 <white>"
+                            + plugin.config().bombDefuseSecondsBare() + "</white> 秒 / 拆弹钳 <white>"
+                            + plugin.config().bombDefuseSecondsClipper() + "</white> 秒），限时 <white>"
+                            + plugin.config().bombDefuseTimeLimitSeconds() + "</white> 秒。");
+                }
             }
         }
 
@@ -1675,6 +1748,10 @@ public final class GameRoom {
                 if (bomb != null) {
                     bomb.tick();
                 }
+                // 相位机、地雷、加时投票各自内部短路，没有对应状态时等于空转
+                tickBombPhases();
+                tickMines();
+                tickOvertimeVote();
                 // 掉线缓冲（借鉴 BedWars2020 的 rejoin-time）：缺人宽限期内等补位，
                 // 超时仍无人补位 → 缺人队判负，不再让剩余玩家打着注定失衡的垃圾局
                 if (!isPve()) {
@@ -1708,13 +1785,13 @@ public final class GameRoom {
                     if (isPve()) {
                         // PVE 是刷分挑战：时间到就是没达标，不判胜
                         finish(null);
+                    } else if (overtimeActive) {
+                        // 加时赛打满：人头多者胜，平局就按平局收
+                        settleOvertime();
                     } else {
-                        // 纯 PVP 套 CS 规则：时限一到即防守方（蓝）守包成功。
-                        // 蓝队已经空了的极端情况（判负流程漏掉）还得有结果，按平局收。
-                        boolean blueEmpty = teamPlayers(TeamId.BLUE).isEmpty();
-                        broadcast("<yellow><bold>时间到！</bold></yellow> <gray>防守方成功守住包点，"
-                                + "<blue><bold>蓝队</bold></color> 获胜。");
-                        finish(blueEmpty ? null : TeamId.BLUE);
+                        // 纯 PVP：时限到且双方都没到目标分 → 先开加时投票。
+                        // 投票没通过时由 tickOvertimeVote 按「防守方守包成功」结算。
+                        openOvertimeVote();
                     }
                 }
             }
@@ -1834,6 +1911,19 @@ public final class GameRoom {
             bomb.restore();
             bomb = null;
         }
+        // 包点相位、加时赛与商店计数都是「本局」状态：收尾不清，下一局会带着上一局的
+        // 相位和购买上限开局（例如红队永远买不了第二把钳子）。
+        bombPhase = BombPhase.FREE_TIME;
+        bombActivatedAt = 0L;
+        bombDefuseDeadlineAt = 0L;
+        baseOpenAt = 0L;
+        overtimeActive = false;
+        overtimeVoteOpen = false;
+        overtimeVotes.clear();
+        overtimeKills.clear();
+        clippersBought.clear();
+        clearMines();
+        minesBought.clear();
         clearSkillProjectiles();
         clearDroppedItems();
         clearSummons();
@@ -1958,10 +2048,25 @@ public final class GameRoom {
     public long remainingMillis() {
         // 计时从正式开战（PLAYING）起算：等待/倒计时/笼内冻结都不消耗对局时间
         if (phase != Phase.PLAYING && phase != Phase.ENDING) {
-            return rules().timeLimitMillis();
+            return overtimeActive ? overtimeMillis() : rules().timeLimitMillis();
         }
         long base = phase == Phase.PLAYING ? System.currentTimeMillis() : endedAt;
+        // 加时赛把「剩余时间」重新按加时时长计时：记分板/结算都读这一个口径，
+        // 否则加时赛会一直显示 00:00。
+        if (overtimeActive) {
+            return Math.max(0L, overtimeMillis() - (base - overtimeStartedAt));
+        }
+        // 加时投票窗口：时间已经耗尽，但还没决定打不打加时。
+        // 这里返回投票剩余时间，否则侧栏会一直挂着 00:00，看起来像卡住了。
+        if (overtimeVoteOpen) {
+            return Math.max(0L, overtimeVoteDeadline - base);
+        }
         return Math.max(0L, rules().timeLimitMillis() - (base - startedAt));
+    }
+
+    /** 加时赛总时长（毫秒）。 */
+    private long overtimeMillis() {
+        return Math.max(1, plugin.config().overtimeDurationSeconds()) * 1000L;
     }
 
     public String remainingText() {
@@ -1989,7 +2094,19 @@ public final class GameRoom {
 
     /** 基地是否已过保护期、可以开始占点。 */
     public boolean isBaseCaptureOpen() {
-        return phase == Phase.PLAYING && elapsedSeconds() >= (long) rules().baseCaptureDelaySeconds();
+        if (phase != Phase.PLAYING) {
+            return false;
+        }
+        // 加时赛只比人头：包点已经收掉，占点也不再计分（否则侧栏分数会自己往上爬）
+        if (overtimeActive) {
+            return false;
+        }
+        // 有包点的纯 PVP：基地开放完全由炸弹相位驱动（拆完或拆弹超时后才开），
+        // 不再看 base.capture-delay-seconds——包点已经是这一局的主线节奏。
+        if (usesBombPhase()) {
+            return bombPhase == BombPhase.BASE_FIGHT;
+        }
+        return elapsedSeconds() >= (long) rules().baseCaptureDelaySeconds();
     }
 
     /** 保护期剩余秒数（0 = 已开放占点）。 */
@@ -1997,7 +2114,629 @@ public final class GameRoom {
         if (phase != Phase.PLAYING) {
             return 0L;
         }
+        if (usesBombPhase()) {
+            if (bombPhase == BombPhase.BASE_FIGHT) {
+                return 0L;
+            }
+            // 拆弹窗口还没走完：报「还要多久才可能开基地」的下限，给玩家一个量级
+            long now = System.currentTimeMillis();
+            long activationLeft = bombActivatedAt == 0L
+                    ? Math.max(0L, plugin.config().bombActivationDelaySeconds() * 1000L
+                    - (now - startedAt))
+                    : 0L;
+            long defuseLeft = bombPhase == BombPhase.DEFUSE
+                    ? Math.max(0L, bombDefuseDeadlineAt - now)
+                    : plugin.config().bombDefuseTimeLimitSeconds() * 1000L;
+            return (activationLeft + defuseLeft + 999L) / 1000L;
+        }
         return Math.max(0L, (long) rules().baseCaptureDelaySeconds() - elapsedSeconds());
+    }
+
+    /** 本局是否由炸弹相位机掌控基地开放（纯 PVP 且场地设了包点）。 */
+    private boolean usesBombPhase() {
+        return bomb != null && !isPve() && !isSengoku();
+    }
+
+    // ---------------------------------------------------------------- 包点相位 / 队伍商店 / 加时赛
+
+    /** 当前包点相位（没包点的房间恒为 {@code FREE_TIME}）。 */
+    public BombPhase bombPhase() {
+        return bombPhase;
+    }
+
+    public boolean isOvertimeActive() {
+        return overtimeActive;
+    }
+
+    public int overtimeKillsOf(TeamId team) {
+        return team == null ? 0 : overtimeKills.getOrDefault(team, 0);
+    }
+
+    public boolean isOvertimeVoteOpen() {
+        return overtimeVoteOpen;
+    }
+
+    /**
+     * 激活包点：包点方块变成 TNT，进入拆弹窗口。
+     *
+     * <p>重复调用安全——相位已经离开 {@code FREE_TIME} 就直接返回，
+     * 所以「开局延迟到点」与「配置成 0 立刻激活」可以共用这一个入口。</p>
+     */
+    public void activateBomb() {
+        if (bombPhase != BombPhase.FREE_TIME || bomb == null) {
+            return;
+        }
+        if (!bomb.place()) {
+            // 场地没设包点 / 房间世界还没就绪：降级为纯比分对局，别让玩家对着空气拆包
+            bomb = null;
+            broadcast("<yellow>本场地未设置包点（<white>/taketori arena setbomb</white>），"
+                    + "本局只按分数判胜负。");
+            return;
+        }
+        long now = System.currentTimeMillis();
+        bombPhase = BombPhase.DEFUSE;
+        bombActivatedAt = now;
+        bombDefuseDeadlineAt = now + plugin.config().bombDefuseTimeLimitSeconds() * 1000L;
+        broadcast("<gold><bold>炸弹已激活！</bold> <gray>红队拆除（空手 <white>"
+                + plugin.config().bombDefuseSecondsBare() + "</white> 秒 / 拆弹钳 <white>"
+                + plugin.config().bombDefuseSecondsClipper() + "</white> 秒），限时 <white>"
+                + plugin.config().bombDefuseTimeLimitSeconds() + "</white> 秒；蓝队守住即可。");
+        board.updateAll();
+    }
+
+    /**
+     * 每秒推进包点相位：{@code FREE_TIME} 到点激活、{@code DEFUSE} 判定拆完/超时。
+     *
+     * <p>拆完的判定放在这里而不是 {@code BombObjective} 里：拆除动作本身不该知道
+     * 「拆完就赢」这种对局规则，它只负责把 {@code defused} 置真。</p>
+     */
+    public void tickBombPhases() {
+        if (bomb == null || isSengoku() || isPve()) {
+            return;
+        }
+        long now = System.currentTimeMillis();
+        if (bombPhase == BombPhase.FREE_TIME) {
+            if (bombActivatedAt == 0L
+                    && now - startedAt >= plugin.config().bombActivationDelaySeconds() * 1000L) {
+                activateBomb();
+            }
+            return;
+        }
+        if (bombPhase != BombPhase.DEFUSE) {
+            return;
+        }
+        if (bomb.isDefused()) {
+            finish(TeamId.RED);
+            return;
+        }
+        if (now >= bombDefuseDeadlineAt) {
+            bombTimedOut();
+        }
+    }
+
+    /**
+     * 拆弹超时：蓝队守包成功拿保底分，红队拿安慰分，然后开放基地继续抢分。
+     *
+     * <p>这里直接写 {@code teamScores} 而不是走 {@link #addScore(TeamId, UUID, String, int, String)}：
+     * 那条路会套进攻方折算系数、还要求 {@code phase == PLAYING}，而这两笔是「规则给的分」，
+     * 不该被折算，也不该因为相位切换而丢掉。</p>
+     */
+    public void bombTimedOut() {
+        if (bombPhase != BombPhase.DEFUSE) {
+            return;
+        }
+        bombPhase = BombPhase.BASE_FIGHT;
+        if (bomb != null) {
+            bomb.restore();
+        }
+        int blue = plugin.config().bombBlueKeepScore();
+        int red = plugin.config().bombRedConsolationScore();
+        teamScores.merge(TeamId.BLUE, blue, Integer::sum);
+        teamScores.merge(TeamId.RED, red, Integer::sum);
+        broadcast("<gold><bold>拆弹超时！</bold> <gray>防守方守住包点：<blue>蓝队 +" + blue
+                + "</blue> <gray>，<red>红队 +" + red + "</red> <gray>，基地即将开放。");
+        startBaseFight();
+        board.updateAll();
+        // 保底分可能直接顶到目标分，这时本局立刻结束
+        if (teamScore(TeamId.BLUE) >= scoreTargetOf(TeamId.BLUE)) {
+            finish(TeamId.BLUE);
+        } else if (teamScore(TeamId.RED) >= scoreTargetOf(TeamId.RED)) {
+            finish(TeamId.RED);
+        }
+    }
+
+    /** 开放基地：从这一刻起占点开始计分。 */
+    public void startBaseFight() {
+        if (phase != Phase.PLAYING) {
+            return;
+        }
+        baseOpenAt = System.currentTimeMillis();
+        baseCapture.start();
+        baseMarker.start();
+        broadcast("<aqua>双方基地已开放，抢占基地 + 互杀 + 清月人继续得分，先到目标分者获胜。");
+    }
+
+    /**
+     * 布置一枚地雷：把落点方块换成石质压力板并登记。
+     *
+     * <p>压力板只是「看得见的标记」，触发完全由 {@link #tickMines()} 按距离判定——
+     * 依赖压力板的物理事件会被红石、台阶高度、区块未加载坑掉一堆边界情况。</p>
+     *
+     * <p>上限这里数的是<b>已经布下的</b>地雷，不是购买次数：{@code minesBought} 在购买时
+     * 就已经被 {@code shop.land-mine.max-per-team} 卡住，再拿它当布设上限，就会让
+     * 「先把两枚都买了再埋」变成一枚也埋不下去。</p>
+     *
+     * <p>落点还要过四道检查：在场地活动范围内、不是包点方块、这一格还没有雷、
+     * 方块是空气或可穿过的——压力板会直接 {@code setType} 覆盖，不加检查就能把
+     * 包点 TNT 顶掉、把箱子连内容一起抹掉。</p>
+     *
+     * @return true = 地雷已布下（调用方可以消耗手上的道具）
+     */
+    public boolean placeMine(Player player, Location location) {
+        if (player == null || location == null || phase != Phase.PLAYING) {
+            return false;
+        }
+        TeamId team = teamOf(player.getUniqueId());
+        if (team != TeamId.BLUE) {
+            plugin.fx().actionBar(player, MINI.deserialize("<blue>只有蓝队可以布置地雷"));
+            return false;
+        }
+        int max = plugin.config().landMineMaxPerTeam();
+        int placed = 0;
+        for (UUID owner : mines.values()) {
+            if (teamOf(owner) == team) {
+                placed++;
+            }
+        }
+        if (placed >= max) {
+            plugin.fx().actionBar(player, MINI.deserialize("<blue>本队已布置的地雷已达上限（" + max + " 枚）"));
+            return false;
+        }
+        Block block = location.getBlock();
+        Location key = block.getLocation();
+        // 落点必须在场地活动范围内：场外的压力板不受「对局中禁止破坏」保护，
+        // 谁都能挖走，收尾还原时还会凭空补一块方块。
+        if (!isPlayArea(key)) {
+            plugin.fx().actionBar(player, MINI.deserialize("<blue>地雷只能布置在场地范围内"));
+            return false;
+        }
+        // 包点方块不许被顶掉：点 TNT 的相邻方块侧面时，落点正好是包点那一格，
+        // 不拦的话蓝队花 40 分就能把 TNT 换成压力板——红队再也拆不了包，只能等超时。
+        if (bomb != null && bomb.isBombBlock(block)) {
+            plugin.fx().actionBar(player, MINI.deserialize("<blue>包点上不能布置地雷"));
+            return false;
+        }
+        if (mines.containsKey(key)) {
+            plugin.fx().actionBar(player, MINI.deserialize("<blue>这里已经有一枚地雷了"));
+            return false;
+        }
+        // 只往空气 / 可穿过的方块上放：覆盖箱子、门这类实体方块会永久毁掉场地内容
+        // （还原只记材质，记不回容器里的东西）。
+        if (!block.getType().isAir() && !block.isPassable()) {
+            plugin.fx().actionBar(player, MINI.deserialize("<blue>这里放不下地雷"));
+            return false;
+        }
+        // putIfAbsent：即便上面漏了某种情况，也不会把「压力板」记成原始方块，
+        // 否则引爆后还原出一块压力板，场地永久残留。
+        mineOriginals.putIfAbsent(key, block.getType());
+        block.setType(Material.STONE_PRESSURE_PLATE, false);
+        mines.put(key, player.getUniqueId());
+        broadcast(team.colorTag() + player.getName() + " <gray>布置了一枚地雷。");
+        return true;
+    }
+
+    /**
+     * 地雷的判定对象：仍在本局、且真的会被伤害的玩家。
+     *
+     * <p>阵亡的队员会留在 {@code teams} 里并转成旁观模式（见 {@code SpectatorManager}），
+     * 只看 {@code teamOf != null} 会让一具尸体踩响地雷，也会让旁观者被 {@code setHealth(0)}
+     * 再「杀」一次；创造模式的管理员同样不该被地雷带走。</p>
+     */
+    private boolean isMineTarget(Player player) {
+        if (player == null || teamOf(player.getUniqueId()) == null) {
+            return false;
+        }
+        GameMode mode = player.getGameMode();
+        if (mode == GameMode.SPECTATOR || mode == GameMode.CREATIVE) {
+            return false;
+        }
+        return !player.isDead() && player.getHealth() > 0.0D;
+    }
+
+    /** 每秒检查地雷触发：任何在册玩家（不分队伍）踩进触发半径就引爆。 */
+    public void tickMines() {
+        if (mines.isEmpty() || phase != Phase.PLAYING) {
+            return;
+        }
+        double trigger = plugin.config().landMineTriggerRadius();
+        double kill = plugin.config().landMineKillRadius();
+        List<Location> triggered = new ArrayList<>();
+        for (Location mine : mines.keySet()) {
+            World world = mine.getWorld();
+            if (world == null) {
+                continue;
+            }
+            Location center = mine.clone().add(0.5D, 0.5D, 0.5D);
+            for (Player player : world.getPlayers()) {
+                if (!isMineTarget(player)) {
+                    continue;
+                }
+                if (player.getLocation().distanceSquared(center) <= trigger * trigger) {
+                    triggered.add(mine);
+                    break;
+                }
+            }
+        }
+        for (Location mine : triggered) {
+            detonateMine(mine, kill);
+        }
+    }
+
+    /** 引爆并还原方块；杀伤半径内只伤在册玩家，路过的大厅玩家不该被波及。 */
+    private void detonateMine(Location location, double killRadius) {
+        if (mines.remove(location) == null) {
+            return;
+        }
+        Material original = mineOriginals.remove(location);
+        location.getBlock().setType(original == null ? Material.AIR : original, false);
+        World world = location.getWorld();
+        if (world == null) {
+            return;
+        }
+        Location center = location.clone().add(0.5D, 0.5D, 0.5D);
+        world.createExplosion(center, 0.0F, false, false);
+        for (Player player : world.getPlayers()) {
+            if (!isMineTarget(player)) {
+                continue;
+            }
+            if (player.getLocation().distanceSquared(center) > killRadius * killRadius) {
+                continue;
+            }
+            player.setHealth(0.0D);
+        }
+    }
+
+    /** 还原所有未引爆的地雷（收尾/重开用），避免下一局开局就有人踩到上一局的地雷。 */
+    public void clearMines() {
+        for (Map.Entry<Location, Material> entry : mineOriginals.entrySet()) {
+            Material original = entry.getValue();
+            entry.getKey().getBlock().setType(original == null ? Material.AIR : original, false);
+        }
+        mines.clear();
+        mineOriginals.clear();
+    }
+
+    /**
+     * 红队购买拆弹钳。
+     *
+     * @return true = 买成功（分数已扣、钳子已进背包）
+     */
+    public boolean buyDefuseClipper(Player player) {
+        if (player == null || phase != Phase.PLAYING) {
+            return false;
+        }
+        UUID uuid = player.getUniqueId();
+        int max = plugin.config().defuseClipperMaxPerPlayer();
+        int cost = plugin.config().defuseClipperCost();
+        int score = playerScore(uuid);
+        // 判定顺序（队伍 → 上限 → 积分）写在 ShopRules 里并带离线断言：
+        // 这里只负责把拒绝理由翻译成一句话，规则本身不散落在事件代码里。
+        ShopRules.DenyReason deny = clipperDenyReason(player);
+        if (deny != ShopRules.DenyReason.OK) {
+            plugin.fx().actionBar(player, MINI.deserialize(
+                    denyText(deny, "<red>只有红队可以购买拆弹钳", max, cost, score)));
+            return false;
+        }
+        // 扣分前先确认背包装得下：否则扣了分、道具掉在地上，PDC 标记还在，
+        // 谁捡到谁能用——等于把 max-per-player 白送给别人。
+        if (player.getInventory().firstEmpty() < 0) {
+            plugin.fx().actionBar(player, MINI.deserialize("<red>背包已满，先腾出一格再买。"));
+            return false;
+        }
+        playerScores.put(uuid, ShopRules.scoreAfter(score, cost));
+        clippersBought.merge(uuid, 1, Integer::sum);
+        ItemStack clipper = new ItemStack(Material.SHEARS);
+        ItemMeta meta = clipper.getItemMeta();
+        if (meta != null) {
+            meta.displayName(MINI.deserialize("<gold>拆弹钳 <gray>(拆除时间 "
+                    + plugin.config().bombDefuseSecondsClipper() + "s)"));
+            meta.getPersistentDataContainer().set(PDCKeys.defuseClipper(),
+                    PersistentDataType.BYTE, (byte) 1);
+            clipper.setItemMeta(meta);
+        }
+        giveOrDrop(player, clipper);
+        board.updateAll();
+        plugin.fx().actionBar(player, MINI.deserialize("<green>购买拆弹钳成功，消耗 " + cost + " 分"));
+        return true;
+    }
+
+    /**
+     * 蓝队购买地雷。
+     *
+     * @return true = 买成功（分数已扣、地雷已进背包）
+     */
+    public boolean buyLandMine(Player player) {
+        if (player == null || phase != Phase.PLAYING) {
+            return false;
+        }
+        UUID uuid = player.getUniqueId();
+        int max = plugin.config().landMineMaxPerTeam();
+        int cost = plugin.config().landMineCost();
+        int score = playerScore(uuid);
+        ShopRules.DenyReason deny = landMineDenyReason(player);
+        if (deny != ShopRules.DenyReason.OK) {
+            plugin.fx().actionBar(player, MINI.deserialize(
+                    denyText(deny, "<blue>只有蓝队可以购买地雷", max, cost, score)));
+            return false;
+        }
+        if (player.getInventory().firstEmpty() < 0) {
+            plugin.fx().actionBar(player, MINI.deserialize("<red>背包已满，先腾出一格再买。"));
+            return false;
+        }
+        playerScores.put(uuid, ShopRules.scoreAfter(score, cost));
+        TeamId team = teamOf(uuid);
+        if (team != null) {
+            minesBought.merge(team, 1, Integer::sum);
+        }
+        ItemStack mine = new ItemStack(Material.TRIPWIRE_HOOK);
+        ItemMeta meta = mine.getItemMeta();
+        if (meta != null) {
+            meta.displayName(MINI.deserialize("<aqua>地雷 <gray>(杀伤 "
+                    + Math.round(plugin.config().landMineKillRadius()) + " 格 / 触发 "
+                    + Math.round(plugin.config().landMineTriggerRadius()) + " 格)"));
+            meta.getPersistentDataContainer().set(PDCKeys.landMine(),
+                    PersistentDataType.BYTE, (byte) 1);
+            mine.setItemMeta(meta);
+        }
+        giveOrDrop(player, mine);
+        board.updateAll();
+        plugin.fx().actionBar(player, MINI.deserialize("<green>购买地雷成功，消耗 " + cost + " 分"));
+        return true;
+    }
+
+    /**
+     * 拆弹钳的购买裁决。
+     *
+     * <p>界面（{@code ShopMenu}）也调这一个方法，而不是自己按「背包里有几把」另算一遍：
+     * 界面用持有数、内核用购买次数，就会出现「死一次之后界面亮着可买、点了却被拒」。
+     * 两边共用同一套 {@link ShopRules} 判定，口径不会再漂。</p>
+     */
+    public ShopRules.DenyReason clipperDenyReason(Player player) {
+        if (player == null) {
+            return ShopRules.DenyReason.WRONG_TEAM;
+        }
+        UUID uuid = player.getUniqueId();
+        return ShopRules.clipperDenyReason(teamOf(uuid),
+                clippersBought.getOrDefault(uuid, 0),
+                plugin.config().defuseClipperMaxPerPlayer(),
+                playerScore(uuid),
+                plugin.config().defuseClipperCost());
+    }
+
+    /** 地雷的购买裁决（口径同 {@link #clipperDenyReason(Player)}）。 */
+    public ShopRules.DenyReason landMineDenyReason(Player player) {
+        if (player == null) {
+            return ShopRules.DenyReason.WRONG_TEAM;
+        }
+        TeamId team = teamOf(player.getUniqueId());
+        return ShopRules.landMineDenyReason(team,
+                team == null ? 0 : minesBought.getOrDefault(team, 0),
+                plugin.config().landMineMaxPerTeam(),
+                playerScore(player.getUniqueId()),
+                plugin.config().landMineCost());
+    }
+
+    /**
+     * 发一件道具；万一背包塞不下，掉落前先抹掉 PDC 标记。
+     *
+     * <p>带标记的钳子/地雷被丢在地上等于「谁捡到谁能用」：限购只按购买者自己的次数算，
+     * 捡的人不受约束。抹掉标记后它只是一把普通剪刀/绊线钩，规则不会漏。</p>
+     */
+    private void giveOrDrop(Player player, ItemStack item) {
+        for (ItemStack rest : player.getInventory().addItem(item).values()) {
+            ItemMeta meta = rest.getItemMeta();
+            if (meta != null) {
+                meta.getPersistentDataContainer().remove(PDCKeys.defuseClipper());
+                meta.getPersistentDataContainer().remove(PDCKeys.landMine());
+                rest.setItemMeta(meta);
+            }
+            player.getWorld().dropItemNaturally(player.getLocation(), rest);
+        }
+    }
+
+    /** 背包里还剩几把拆弹钳（按 PDC 标记数，不看堆叠）。 */
+    public int countClippers(Player player) {
+        if (player == null) {
+            return 0;
+        }
+        int count = 0;
+        for (ItemStack item : player.getInventory().getContents()) {
+            if (isClipper(item)) {
+                count += item.getAmount();
+            }
+        }
+        return count;
+    }
+
+    /**
+     * 清掉背包里的拆弹钳（死亡时调用）。
+     *
+     * <p>钳子是「一次性特权」：留在死亡掉落里等于可以被队友捡走反复用，
+     * 所以死亡直接抹掉，想再拆就得重新买。</p>
+     */
+    public void removeClippers(Player player) {
+        if (player == null) {
+            return;
+        }
+        var contents = player.getInventory().getContents();
+        for (int slot = 0; slot < contents.length; slot++) {
+            if (isClipper(contents[slot])) {
+                player.getInventory().setItem(slot, null);
+            }
+        }
+    }
+
+    private boolean isClipper(ItemStack item) {
+        if (item == null || item.getType() != Material.SHEARS || item.getItemMeta() == null) {
+            return false;
+        }
+        return item.getItemMeta().getPersistentDataContainer()
+                .has(PDCKeys.defuseClipper(), PersistentDataType.BYTE);
+    }
+
+    /**
+     * 把 {@link ShopRules.DenyReason} 翻成一句 actionBar。
+     *
+     * @param wrongTeam 队伍不对时的文案（拆弹钳与地雷的措辞不同，所以由调用方给）
+     */
+    private String denyText(ShopRules.DenyReason reason, String wrongTeam,
+                            int limit, int cost, int score) {
+        return switch (reason) {
+            case WRONG_TEAM -> wrongTeam;
+            case AT_LIMIT -> "<red>已达购买上限（" + limit + " 件）。";
+            case NOT_ENOUGH_SCORE -> "<red>积分不足，需要 " + cost + " 分（当前 " + score + " 分）。";
+            case OK -> "";
+        };
+    }
+
+    /**
+     * 时间到且双方都没到目标分：开加时投票。
+     *
+     * <p>比分清零是刻意的：加时赛是纯 PVP 人头赛，带着原来的分差打等于没加时。</p>
+     */
+    public void openOvertimeVote() {
+        if (phase != Phase.PLAYING || overtimeActive || overtimeVoteOpen) {
+            return;
+        }
+        if (!plugin.config().overtimeEnabled()) {
+            // 服务器关掉了加时：按「防守方守包成功」收尾
+            finishBlueKeep();
+            return;
+        }
+        overtimeVoteOpen = true;
+        overtimeVotes.clear();
+        overtimeVoteDeadline = System.currentTimeMillis() + OVERTIME_VOTE_SECONDS * 1000L;
+        // 只清队伍比分：个人分/击杀要留给结算播报与战绩记录
+        resetTeamScores();
+        broadcast("<yellow><bold>时间到，双方均未达标。</bold> <gray>比分清零，是否进入加时赛？"
+                + "输入 <white>/taketori overtime</white> 同意（双方全员同意，"
+                + OVERTIME_VOTE_SECONDS + " 秒内）。");
+        board.updateAll();
+    }
+
+    /** 投一票同意加时；某队全员同意或某队已经没人时直接开始。 */
+    public void voteOvertime(Player player) {
+        if (player == null || phase != Phase.PLAYING || !overtimeVoteOpen) {
+            return;
+        }
+        if (teamOf(player.getUniqueId()) == null) {
+            return;
+        }
+        overtimeVotes.add(player.getUniqueId());
+        int totalRed = 0;
+        int totalBlue = 0;
+        int votedRed = 0;
+        int votedBlue = 0;
+        for (Map.Entry<UUID, TeamId> entry : teams.entrySet()) {
+            boolean voted = overtimeVotes.contains(entry.getKey());
+            if (entry.getValue() == TeamId.RED) {
+                totalRed++;
+                if (voted) {
+                    votedRed++;
+                }
+            } else if (entry.getValue() == TeamId.BLUE) {
+                totalBlue++;
+                if (voted) {
+                    votedBlue++;
+                }
+            }
+        }
+        if (totalRed == 0 || totalBlue == 0
+                || (votedRed >= totalRed && votedBlue >= totalBlue)) {
+            startOvertime();
+            return;
+        }
+        broadcast("<gray>加时投票：<red>红 " + votedRed + "/" + totalRed + " <gray>| <blue>蓝 "
+                + votedBlue + "/" + totalBlue + " <gray>已同意");
+    }
+
+    /** 投票窗口到期仍未通过：按防守方守包成功结算，别让对局卡在 0-0。 */
+    private void tickOvertimeVote() {
+        if (!overtimeVoteOpen) {
+            return;
+        }
+        if (System.currentTimeMillis() < overtimeVoteDeadline) {
+            return;
+        }
+        overtimeVoteOpen = false;
+        broadcast("<yellow><bold>加时投票未通过。</bold> <gray>时间到，防守方成功守住包点。");
+        finishBlueKeep();
+    }
+
+    /** 蓝队守包成功收尾（蓝队已空时按平局收，避免判给一支不存在的队）。 */
+    private void finishBlueKeep() {
+        // 有包点的场地按「守包成功」给保底分：否则时间到结算会停在 0:0，
+        // 与拆弹超时（蓝 +blue-keep-score / 红 +red-consolation-score）两套口径对不上。
+        if (usesBombPhase()) {
+            int blue = plugin.config().bombBlueKeepScore();
+            int red = plugin.config().bombRedConsolationScore();
+            teamScores.merge(TeamId.BLUE, blue, Integer::sum);
+            teamScores.merge(TeamId.RED, red, Integer::sum);
+            broadcast("<gold><bold>防守方守住包点：</bold> <blue>蓝队 +" + blue
+                    + "</blue> <gray>，<red>红队 +" + red + "</red> <gray>。");
+        }
+        boolean blueEmpty = teamPlayers(TeamId.BLUE).isEmpty();
+        broadcast("<blue><bold>蓝队</bold></color> <green>获胜！");
+        finish(blueEmpty ? null : TeamId.BLUE);
+    }
+
+    /** 开始加时：纯 PVP，人头多者胜。 */
+    public void startOvertime() {
+        if (phase != Phase.PLAYING || overtimeActive) {
+            return;
+        }
+        overtimeActive = true;
+        overtimeVoteOpen = false;
+        overtimeStartedAt = System.currentTimeMillis();
+        overtimeKills.clear();
+        // 加时只算人头：把还在倒计时的包点收掉，否则红队还能靠拆包直接赢下加时
+        if (bomb != null) {
+            bomb.restore();
+            bomb = null;
+        }
+        bombPhase = BombPhase.BASE_FIGHT;
+        broadcast("<gold><bold>加时赛开始！</bold></gold> <gray>纯 PVP，<white>"
+                + plugin.config().overtimeDurationSeconds() + "</white> 秒内人头多者获胜。");
+        board.updateAll();
+    }
+
+    /**
+     * 加时赛记一个人头（只记队伍，不记个人分——比分已经清零了）。
+     *
+     * <p>每个人头记多少由 {@code overtime.kill-score} 决定（默认 1，也就是纯比人头）；
+     * 配成 2 就等于「一个人头顶两个人头」，用来放大单杀价值。</p>
+     */
+    public void addOvertimeKill(TeamId team) {
+        if (!overtimeActive || team == null) {
+            return;
+        }
+        int perKill = Math.max(1, plugin.config().overtimeKillScore());
+        overtimeKills.merge(team, perKill, Integer::sum);
+        board.updateAll();
+    }
+
+    /** 加时赛打满：比人头定胜负，平局就平局。 */
+    public void settleOvertime() {
+        if (!overtimeActive) {
+            return;
+        }
+        overtimeActive = false;
+        int red = overtimeKills.getOrDefault(TeamId.RED, 0);
+        int blue = overtimeKills.getOrDefault(TeamId.BLUE, 0);
+        TeamId overtimeWinner = red == blue ? null : (red > blue ? TeamId.RED : TeamId.BLUE);
+        broadcast("<yellow>加时结束：<red>红 " + red + " <gray>: <blue>蓝 " + blue + "</blue> <gray>"
+                + (overtimeWinner == null ? "平局" : overtimeWinner.display() + " 获胜"));
+        finish(overtimeWinner);
     }
 
     // ---------------------------------------------------------------- 结算

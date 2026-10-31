@@ -38,7 +38,8 @@ public final class TaketoriCommand implements CommandExecutor, TabCompleter {
     private static final List<String> SUB_COMMANDS = List.of(
             "reload", "give", "character", "debug", "doctor", "mode", "qmode", "skills",
             "match", "team", "arena", "lobby", "room", "moonmap", "stats", "play", "leave", "surrender",
-            "editor", "menu", "ranks", "admin", "tag", "tags", "f", "pve", "keys", "party", "rejoin");
+            "editor", "menu", "ranks", "admin", "tag", "tags", "f", "pve", "keys", "party", "rejoin",
+            "shop", "buy", "overtime");
 
     private static final List<String> Q_MODES = List.of("drop", "held-slot", "none");
 
@@ -81,6 +82,13 @@ public final class TaketoriCommand implements CommandExecutor, TabCompleter {
             //   moonmap = 月面模板管理（create / import / list / load / unload）
             case "match", "team", "arena", "lobby", "stats", "pve", "room", "moonmap" ->
                     new MatchCommand(plugin).handle(sender, args);
+            // 队伍商店与加时投票：玩家常用，给个短别名，内部转成 match 子命令。
+            // 参数前面插一个 "match"，这样 /taketori shop clipper 与
+            // /taketori match shop clipper 走同一套解析。
+            case "shop", "buy" -> new MatchCommand(plugin)
+                    .handle(sender, prependMatch(args));
+            case "overtime" -> new MatchCommand(plugin)
+                    .handle(sender, prependMatch(args));
             // 玩家自助退出：退出观战 / 退出队列（聊天栏的「退出观战」按钮执行的就是它）
             case "leave" -> new MatchCommand(plugin).handleLeave(sender);
             // 战国 3v3：划区（setkeep / settower / …）与运维（start / pause / towers / …）
@@ -647,6 +655,13 @@ public final class TaketoriCommand implements CommandExecutor, TabCompleter {
             }
             return result;
         }
+        if (args.length == 2 && (args[0].equalsIgnoreCase("shop") || args[0].equalsIgnoreCase("buy"))) {
+            return startsWith(List.of("clipper", "mine", "setnpc"), args[1]);
+        }
+        if (args.length == 3 && args[0].equalsIgnoreCase("shop")
+                && args[1].equalsIgnoreCase("setnpc")) {
+            return startsWith(List.of("red", "blue"), args[2]);
+        }
         if (args.length == 2 && args[0].equalsIgnoreCase("ranks")) {
             return startsWith(List.of("score", "kills", "minion", "base", "deaths", "matches", "wins", "best"), args[1]);
         }
@@ -847,6 +862,19 @@ public final class TaketoriCommand implements CommandExecutor, TabCompleter {
             return result;
         }
         return result;
+    }
+
+    /**
+     * 把 {@code /taketori shop …} 改写成 {@code /taketori match shop …}。
+     *
+     * <p>参数约定与 Bukkit 一致：{@code args[0]} 是子命令、不含指令名本身。
+     * 所以这里只是在最前面插一个 {@code "match"}，其余原样后移。</p>
+     */
+    private static String[] prependMatch(String[] args) {
+        String[] rewritten = new String[args.length + 1];
+        rewritten[0] = "match";
+        System.arraycopy(args, 0, rewritten, 1, args.length);
+        return rewritten;
     }
 
     /** 前缀过滤的补全辅助（大小写不敏感）。 */

@@ -7,6 +7,13 @@
 # 拿一件武器的角色：Q 键按武器配置切换模式或切换到另一件装备。
 #
 # 绑定角色时会同时发一套保护 II 的铁甲（config.yml 的 loadout）。
+#
+# 阵容与武器名按 .name-revert/map.tsv 的对应关系取名（id 与显示名一一对应，见该文件）：
+#   kaguya→tsukuyomi 月读 · mikado→shogun 将军 · iroha→hayate 疾风 · noi→yuzuki 夕月
+#   rai→tatewaki 盾胁 · yachiyo→mikoto 月巫 · takumi→kurogane 铁卫 · masami→kage 影丸
+#   ashika→yoshino 吉野
+# id 保持不变 —— 存档、房间配置与玩家数据都按 id 记账，换 id 等于让所有人重新选角色；
+# 改的只有 display 与 lore。
 
 characters:
 

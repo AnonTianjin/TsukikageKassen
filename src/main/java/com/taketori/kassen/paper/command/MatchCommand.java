@@ -234,10 +234,20 @@ public final class MatchCommand {
     // ---------------------------------------------------------------- match
 
     private void handleMatch(CommandSender sender, String[] args) {
+        String action = args.length > 1 ? args[1].toLowerCase(Locale.ROOT) : "status";
+        // 商店与加时投票是玩家自己的操作，必须在 admin 门槛之前分流：
+        // 否则普通玩家连 /taketori shop 都会被「你没有权限」挡掉。
+        if ("shop".equals(action) || "buy".equals(action)) {
+            handleShop(sender, args);
+            return;
+        }
+        if ("overtime".equals(action)) {
+            handleOvertimeVote(sender);
+            return;
+        }
         if (!require(sender, "taketori.admin")) {
             return;
         }
-        String action = args.length > 1 ? args[1].toLowerCase(Locale.ROOT) : "status";
         switch (action) {
             case "start" -> {
                 boolean force = false;
@@ -257,6 +267,80 @@ public final class MatchCommand {
                     + " | stop [房间id] [原因] | status | mode <pvp|pve> [房间id]"
                     + " | difficulty <easy|normal|hard>");
         }
+    }
+
+    /**
+     * 队伍商店：{@code /taketori shop}（等价 {@code /taketori buy}）。
+     *
+     * <p>子命令：无参数 = 打开商店界面；{@code clipper|剪刀|拆弹钳} 与 {@code mine|地雷}
+     * 是免界面的快捷购买；{@code setnpc <red|blue>} 把商人 NPC 挪到脚下（管理员）。</p>
+     */
+    private void handleShop(CommandSender sender, String[] args) {
+        if (!(sender instanceof Player player)) {
+            send(sender, "<red>该指令需要玩家执行。");
+            return;
+        }
+        String sub = args.length > 2 ? args[2].toLowerCase(Locale.ROOT) : "";
+        if ("setnpc".equals(sub)) {
+            if (!require(sender, "taketori.admin")) {
+                return;
+            }
+            if (plugin.shopNpc() == null) {
+                send(sender, "<red>商店 NPC 模块未加载。");
+                return;
+            }
+            TeamId team = args.length > 3 ? TeamId.byName(args[3]) : null;
+            if (team == null) {
+                send(sender, "<red>用法：<white>/taketori shop setnpc <red|blue>");
+                return;
+            }
+            plugin.shopNpc().setNpcLocation(team, player.getLocation());
+            send(sender, "<green>已把 " + team.colorTag() + team.display()
+                    + "</color> <green>的商人挪到当前位置（坐标已写入配置）。");
+            send(sender, "<gray>商人只负责开店，卖什么由队伍决定：<red>红队买拆弹钳"
+                    + "</red> <gray>，<blue>蓝队买地雷</blue> <gray>。");
+            return;
+        }
+        if (sub.isEmpty()) {
+            if (plugin.shopMenu() == null) {
+                send(sender, "<red>商店界面未加载。");
+                return;
+            }
+            plugin.shopMenu().open(player);
+            return;
+        }
+        GameRoom room = plugin.rooms().roomOf(player);
+        if (room == null || !room.isRunning()) {
+            send(sender, "<red>你不在进行中的对局中，无法购买道具。");
+            send(sender, "<gray>用法：<white>/taketori shop <clipper|mine></white>");
+            return;
+        }
+        switch (sub) {
+            case "clipper", "剪刀", "拆弹钳" -> room.buyDefuseClipper(player);
+            case "mine", "地雷" -> room.buyLandMine(player);
+            default -> {
+                send(sender, "<red>没有这种商品：<white>" + sub + "</white><red>。");
+                sender.sendMessage(plugin.config().messages().prefixed("command.usage-shop"));
+            }
+        }
+    }
+
+    /** 加时赛投票：{@code /taketori overtime}（等价 {@code /taketori match overtime}）。 */
+    private void handleOvertimeVote(CommandSender sender) {
+        if (!(sender instanceof Player player)) {
+            send(sender, "<red>该指令需要玩家执行。");
+            return;
+        }
+        GameRoom room = plugin.rooms().roomOf(player);
+        if (room == null || !room.isRunning()) {
+            send(sender, "<red>你不在进行中的对局中。");
+            return;
+        }
+        if (!room.isOvertimeVoteOpen()) {
+            send(sender, "<gray>当前没有进行中的加时投票。");
+            return;
+        }
+        room.voteOvertime(player);
     }
 
     /**
@@ -1113,8 +1197,11 @@ public final class MatchCommand {
                 def.setBomb(player.getLocation());
                 arenaManager.save();
                 send(sender, "<green>[" + def.id() + "] 包点已设置：" + describe(player.getLocation()));
-                send(sender, "<dark_gray>开局这个方块会变成拉杆：进攻方（红）连点 "
-                        + plugin.config().bombClicks() + " 下拆开即胜，防守方（蓝）守包。");
+                send(sender, "<dark_gray>开局 " + plugin.config().bombActivationDelaySeconds()
+                        + " 秒后这个方块变成 TNT：进攻方（红）站上去读条拆除（空手 "
+                        + plugin.config().bombDefuseSecondsBare() + " 秒 / 拆弹钳 "
+                        + plugin.config().bombDefuseSecondsClipper() + " 秒），限时 "
+                        + plugin.config().bombDefuseTimeLimitSeconds() + " 秒；防守方（蓝）守住即可。");
                 plugin.arenaSetup().sendChecklist(player);
             }
             case "clearbomb", "delbomb" -> {
@@ -1224,7 +1311,7 @@ public final class MatchCommand {
         send(sender, "<gray>/taketori arena setoutpost  <dark_gray>— 选区中心（或站位）设为 PVE 据点");
         send(sender, "<gray>/taketori arena setwait  <dark_gray>— 等待出生点：有选区=整片等待区（加入者随机分布），无选区=你的站位");
         send(sender, "<gray>/taketori arena setspawn <red|blue>");
-        send(sender, "<gray>/taketori arena setbomb  <dark_gray>— 用站位设置包点（开局变成拉杆，红队连点拆开即胜）");
+        send(sender, "<gray>/taketori arena setbomb  <dark_gray>— 用站位设置包点（开局延迟后变成 TNT，红队读条拆掉即胜）");
         send(sender, "<gray>/taketori arena deloutpost | delbase <red|blue> <编号> | delminion <编号> | delloot <编号> | clearbomb");
         send(sender, "<gray>/taketori arena clearselection  <dark_gray>— 清空你当前的选区（pos1 / pos2）");
         send(sender, "<gray>/taketori arena wand | lootwand  <dark_gray>— 领选区锄 / 道具点工具");

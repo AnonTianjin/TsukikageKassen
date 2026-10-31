@@ -30,11 +30,11 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Set up JDK 21
+      - name: Set up JDK 25
         uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: '25'
 
       # gradle-wrapper.jar 是仓库里的二进制、由 CI 直接执行，先校验它的官方校验和。
       - name: Validate Gradle wrapper
@@ -46,7 +46,7 @@ jobs:
       # gradle build = 编译全部源文件 + 三道护栏：
       #   checkCorePurity（core 层禁 Bukkit/NMS）
       #   checkParamKeys（技能参数键必须被 ConfigValidator 收录）
-      #   offlineCheck（tools/ 下 9 个离线断言/校验程序全跑，清单见 build.gradle.kts 的 offlineTools）
+      #   offlineCheck（tools/ 下 10 个离线断言/校验程序全跑，清单见 build.gradle.kts 的 offlineTools）
       # 依赖从 Maven Central 与 repo.papermc.io 解析，无需本地 libs/。
       - name: Gradle build
         run: ./gradlew build --no-daemon

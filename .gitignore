@@ -50,3 +50,7 @@ credentials*
 
 # 本地私有：名字回滚工具与历史备份（绝不入库）
 .name-revert/
+
+# ---- 版权规避：技能表不入库 ----
+# docs/characters.md 由 tools/gen-character-table.py 按 IP 原名生成，只留在本地。
+docs/characters.md

@@ -4,6 +4,7 @@ import com.taketori.kassen.TaketoriPlugin;
 import com.taketori.kassen.core.character.CharacterDef;
 import com.taketori.kassen.core.character.CharacterManager;
 import com.taketori.kassen.core.match.PveSettings;
+import com.taketori.kassen.core.match.TeamId;
 import com.taketori.kassen.core.match.sengoku.EnergyRules;
 import com.taketori.kassen.core.match.sengoku.MidMinionRules;
 import com.taketori.kassen.core.match.sengoku.SengokuMode;
@@ -727,16 +728,216 @@ public final class ConfigManager {
         return plugin.getConfig().getBoolean("lobby.return-to-entry", true);
     }
 
-    // ---- CS 式包点 ----
+    // ---- CS 式包点（读条模型）----
 
-    /** 拆包需要的点击次数（至少 1 下）。 */
-    public int bombClicks() {
-        return Math.max(1, plugin.getConfig().getInt("bomb.defuse-clicks", 10));
+    /**
+     * 开局后多少秒把包点方块换成 TNT（之前的自由准备时段）。
+     *
+     * <p>允许 0：0 = 开局立刻激活包点，适合没有准备阶段的快节奏场地。
+     * 负数会让 TNT 永远不出现（倒计时起点比结束点还晚），所以统一钳到 0。</p>
+     */
+    public int bombActivationDelaySeconds() {
+        return Math.max(0, plugin.getConfig().getInt("bomb.activation-delay-seconds", 40));
     }
 
-    /** 拆包进度中断多少秒后复位（至少 1 秒）。 */
+    /**
+     * TNT 出现后多少秒内必须拆完，超时算防守方守住（至少 1 秒）。
+     *
+     * <p>钳到 1 而不是 0：0 秒的拆弹窗口等于"一出现就判蓝队赢"，
+     * 那不是配置项能表达的意思，只会让人以为插件坏了。</p>
+     */
+    public int bombDefuseTimeLimitSeconds() {
+        return Math.max(1, plugin.getConfig().getInt("bomb.defuse-time-limit-seconds", 110));
+    }
+
+    /**
+     * 空手拆弹要读条多少秒（至少 1 秒）。
+     *
+     * <p>钳到 1：读条时长 0 会让进度条除零（percent = held / need），
+     * 也会让"读条"这件事失去意义，所以下限是 1 秒。</p>
+     */
+    public int bombDefuseSecondsBare() {
+        return Math.max(1, plugin.getConfig().getInt("bomb.defuse-seconds-bare", 10));
+    }
+
+    /**
+     * 持拆弹钳（剪刀）拆弹要读条多少秒（至少 1 秒）。
+     *
+     * <p>同上，读条时长不能为 0；钳子比空手快多少由这两个值共同决定，
+     * 钳子配得比空手还慢也允许（服主自己的平衡选择），这里不做交叉钳制。</p>
+     */
+    public int bombDefuseSecondsClipper() {
+        return Math.max(1, plugin.getConfig().getInt("bomb.defuse-seconds-clipper", 6));
+    }
+
+    /**
+     * 拆弹进度中断多少秒后清零（0 = 松手即清零）。
+     *
+     * <p>允许 0 是有意的：快节奏场地希望"松手就白拆"，而宽松场地希望
+     * 中断几秒后还能接着拆。负数没有意义（等于永不保留进度），钳到 0。</p>
+     */
     public int bombResetSeconds() {
-        return Math.max(1, plugin.getConfig().getInt("bomb.reset-seconds", 7));
+        return Math.max(0, plugin.getConfig().getInt("bomb.reset-seconds", 7));
+    }
+
+    /**
+     * 蓝队成功守包时蓝队每人得多少分（允许 0）。
+     *
+     * <p>分数可以为 0（守包只判胜负不给分），但不能为负——
+     * 负分会让"守住"变成惩罚，与玩法意图相反。</p>
+     */
+    public int bombBlueKeepScore() {
+        return Math.max(0, plugin.getConfig().getInt("bomb.blue-keep-score", 200));
+    }
+
+    /**
+     * 蓝队守包成功时红队的安慰分（允许 0）。
+     *
+     * <p>同上：允许 0（红队一分不得），负分没有语义。</p>
+     */
+    public int bombRedConsolationScore() {
+        return Math.max(0, plugin.getConfig().getInt("bomb.red-consolation-score", 50));
+    }
+
+    // ---- 队伍商店 ----
+
+    /**
+     * 是否生成商人 NPC（关掉后只能靠 /taketori shop 打开界面）。
+     *
+     * <p>纯开关，不做钳制。</p>
+     */
+    public boolean shopNpcEnabled() {
+        return plugin.getConfig().getBoolean("shop.npc.enabled", true);
+    }
+
+    /**
+     * 商人 NPC 的显示名（红队默认「§c红队商人」，其余按蓝队）。
+     *
+     * <p>这里保留 &sect; 颜色代码而不是 MiniMessage：NPC 名字走的是实体名，
+     * 由调用方决定要不要转成组件。队伍传 null 时按蓝队兜底，避免命令漏参数时 NPE。</p>
+     */
+    public String shopNpcName(TeamId team) {
+        String fallback = team == TeamId.RED ? "§c红队商人" : "§9蓝队商人";
+        String raw = plugin.getConfig().getString(npcPath(team) + ".name", fallback);
+        return raw == null || raw.isBlank() ? fallback : raw;
+    }
+
+    /**
+     * 商人 NPC 所在世界名；未配置（或配成空串）时返回 null。
+     *
+     * <p>返回 null 而不是空串，是为了让调用方用一次判空就能决定"不生成 NPC"；
+     * 空串在 Bukkit.getWorld 里同样是无效值，只会多一层误判。</p>
+     */
+    public String shopNpcWorld(TeamId team) {
+        String raw = plugin.getConfig().getString(npcPath(team) + ".world", null);
+        return raw == null || raw.isBlank() ? null : raw;
+    }
+
+    /** 商人 NPC 的 X 坐标（未配置按 0）。 */
+    public double shopNpcX(TeamId team) {
+        return plugin.getConfig().getDouble(npcPath(team) + ".x", 0.0D);
+    }
+
+    /** 商人 NPC 的 Y 坐标（未配置按 0）。 */
+    public double shopNpcY(TeamId team) {
+        return plugin.getConfig().getDouble(npcPath(team) + ".y", 0.0D);
+    }
+
+    /** 商人 NPC 的 Z 坐标（未配置按 0）。 */
+    public double shopNpcZ(TeamId team) {
+        return plugin.getConfig().getDouble(npcPath(team) + ".z", 0.0D);
+    }
+
+    /** 商人 NPC 的朝向（未配置按 0；YAML 只存 double，这里收窄成 float）。 */
+    public float shopNpcYaw(TeamId team) {
+        return (float) plugin.getConfig().getDouble(npcPath(team) + ".yaw", 0.0D);
+    }
+
+    /** 商人配置的键前缀；队伍为 null 时按蓝队处理。 */
+    private static String npcPath(TeamId team) {
+        return "shop.npc." + (team == null ? TeamId.BLUE.key() : team.key());
+    }
+
+    /**
+     * 拆弹钳单价（允许 0 = 免费，方便测试服）。
+     *
+     * <p>钳到 0：负价格等于买一件倒贴积分，没有语义。</p>
+     */
+    public int defuseClipperCost() {
+        return Math.max(0, plugin.getConfig().getInt("shop.defuse-clipper.cost", 30));
+    }
+
+    /**
+     * 每人最多持有几把拆弹钳（至少 1）。
+     *
+     * <p>钳到 1：上限 0 会让这件商品永远买不了，看起来像功能坏了；
+     * 真要不卖，应该关商店而不是把上限写成 0。</p>
+     */
+    public int defuseClipperMaxPerPlayer() {
+        return Math.max(1, plugin.getConfig().getInt("shop.defuse-clipper.max-per-player", 2));
+    }
+
+    /**
+     * 地雷单价（允许 0 = 免费，方便测试服）。
+     *
+     * <p>同钳子：负价格没有语义，钳到 0。</p>
+     */
+    public int landMineCost() {
+        return Math.max(0, plugin.getConfig().getInt("shop.land-mine.cost", 40));
+    }
+
+    /**
+     * 每队最多埋几个地雷（至少 1）。
+     *
+     * <p>钳到 1：上限 0 等于这件商品永远买不了，会让人以为地雷坏了。</p>
+     */
+    public int landMineMaxPerTeam() {
+        return Math.max(1, plugin.getConfig().getInt("shop.land-mine.max-per-team", 2));
+    }
+
+    /**
+     * 地雷杀伤半径（格，至少 1.0）。
+     *
+     * <p>钳到 1.0：半径 0 的地雷连自己脚下都炸不到，等于埋了个哑弹；
+     * 这个下限也保证调用方算距离时不会出现"零半径"分支。</p>
+     */
+    public double landMineKillRadius() {
+        return Math.max(1.0D, plugin.getConfig().getDouble("shop.land-mine.kill-radius", 5.0D));
+    }
+
+    /**
+     * 地雷触发半径（格，至少 1.0）。
+     *
+     * <p>钳到 1.0 的理由同杀伤半径：0 触发半径永远踩不到。
+     * 触发半径配得比杀伤半径大也允许（提前引爆的"感应雷"），这里不交叉钳制。</p>
+     */
+    public double landMineTriggerRadius() {
+        return Math.max(1.0D, plugin.getConfig().getDouble("shop.land-mine.trigger-radius", 3.0D));
+    }
+
+    // ---- 加时赛 ----
+
+    /** 是否允许发起加时投票（纯开关）。 */
+    public boolean overtimeEnabled() {
+        return plugin.getConfig().getBoolean("overtime.enabled", true);
+    }
+
+    /**
+     * 加时赛时长（秒，至少 1）。
+     *
+     * <p>钳到 1：0 秒的加时赛会在一 tick 内直接结算，等于没有加时。</p>
+     */
+    public int overtimeDurationSeconds() {
+        return Math.max(1, plugin.getConfig().getInt("overtime.duration-seconds", 60));
+    }
+
+    /**
+     * 加时赛每击杀一人得多少分（至少 1）。
+     *
+     * <p>钳到 1：加时赛唯一的判定依据就是人头分，配成 0 会让整局永远是平局。</p>
+     */
+    public int overtimeKillScore() {
+        return Math.max(1, plugin.getConfig().getInt("overtime.kill-score", 1));
     }
 
     /** 玩家进服是否自动传送到大厅。 */

@@ -45,23 +45,79 @@ match:
 
 ## 三、包点（PVP 专属，bomb 段）
 
-场地划了包点之后，这一局多一条获胜路径：进攻方（红）把包点拆开就赢，不必刷满分数。
+场地划了包点之后，这一局多一条获胜路径：进攻方（红）在拆弹窗口内把 TNT 拆开就赢，不必刷满分数。
 
 | 键 | 默认 | 说明 |
 | --- | --- | --- |
-| `bomb.defuse-clicks` | 10 | 拆包需要的点击次数 |
-| `bomb.reset-seconds` | 7 | 进度复位时限：这么久没再点，进度清零并通知进攻方 |
+| `bomb.activation-delay-seconds` | 40 | 自由时段：开局多少秒后包点激活成 TNT |
+| `bomb.defuse-time-limit-seconds` | 110 | 拆弹时限：这么久没拆开算防守方守住 |
+| `bomb.defuse-seconds-bare` | 10 | 空手读条秒数 |
+| `bomb.defuse-seconds-clipper` | 6 | 背包里带着拆弹钳时的读条秒数 |
+| `bomb.reset-seconds` | 7 | 中断后多少秒进度归零（只提醒进攻方） |
+| `bomb.blue-keep-score` | 200 | 守住包点时防守方（蓝）得分 |
+| `bomb.red-consolation-score` | 50 | 守住包点时进攻方（红）的安慰分 |
 
 划线方式：站到要当包点的方块上，`/taketori arena setbomb`；取消用
 `/taketori arena delbomb`。坐标存在 `arenas.yml` 的 `bomb` 段，只有一格。
 
-开局时该方块被换成拉杆。进攻方右键连点 `defuse-clicks` 下即 `finish(RED)`；
-防守方守的是「别让人点够」。包点方块禁止被挖，左键也会被吞掉：原版左键能把拉杆打掉，
-包点一消失这局就没有目标了。方块被外力改掉时由 `BombObjective.maintainBlock()` 每 tick 补回拉杆。
+### 三个相位（`BombPhase`）
 
-不划包点的场地行为完全不变，仍只按分数判胜负。
+| 相位 | 起点 | 结束 | 期间发生什么 |
+| --- | --- | --- | --- |
+| `FREE_TIME` | 开局 | `activation-delay-seconds` 到点 | 双方在出生点准备，包点还是原方块 |
+| `DEFUSE` | 包点变 TNT | 拆开 / `defuse-time-limit-seconds` 到点 | 红队读条，蓝队守 |
+| `BASE_FIGHT` | 超时结算完成 | 到目标分 / 时限 | 基地开放，占点 / 互杀 / 清月人继续计分 |
 
-## 四、基地占点（PVP 专属，base 段）
+### 拆弹动作（`BombObjective`）
+
+- 红队站进包点 4.5 格内**左键**开始读条，**右键**取消；蓝队左键只回一句「你是防守方」；
+- 进度按当前拆弹人累计：队友在 `reset-seconds` 内接手可以接着读，超时整条进度清零；
+- 离开包点、死亡、掉线、换队都会中断，复位提示只发给红队；
+- 读满 → `finish(RED)`，红队直接获胜，包点方块还原成原方块；
+- 空手 10 秒、背包里带着拆弹钳 6 秒；钳子从队伍商店买（见 [队伍商店与炸弹](shop-and-bomb.md)）；
+- 包点方块禁止被挖，被外力换掉时每秒补回 TNT。
+
+### 超时结算（`bombTimedOut`）
+
+110 秒没拆开 → 蓝队 +`blue-keep-score`、红队 +`red-consolation-score`，两笔直接写队伍分、
+不套 `match.attacker-score-multiplier`；随后 `startBaseFight()` 开放基地，谁先到目标分谁赢
+（保底分当场顶到目标分也会立刻结束）。
+
+不划包点的场地不进相位机（`usesBombPhase()` 为 false）：基地开放仍按
+`base.capture-delay-seconds` 的计时走，判胜负只看分数。
+
+### 局内购买（商店）
+
+对局中两队各有商人 NPC：右键它或 `/taketori shop` 打开 27 格商店，花局内个人积分买两件道具 ——
+红队拆弹钳（30 分，每人 2 把，死亡清空）、蓝队地雷（40 分，每队 2 枚，踩到即死）。
+快捷购买 `/taketori shop clipper` / `/taketori shop mine`，规则细节见
+[队伍商店与炸弹](shop-and-bomb.md)。
+
+## 四、加时赛（overtime 段）
+
+时间到、双方都没到目标分时开加时：
+
+| 键 | 默认 | 说明 |
+| --- | --- | --- |
+| `overtime.enabled` | true | 关掉后时间到直接按「防守方守住」结算，不投票 |
+| `overtime.duration-seconds` | 60 | 加时赛时长 |
+| `overtime.kill-score` | 1 | 每次击杀记多少人头 |
+
+流程（`GameRoom.openOvertimeVote` / `startOvertime` / `settleOvertime`）：
+
+1. 时间到 → 播报「比分清零，是否进入加时赛？」，`resetTeamScores()` 只清双方队伍比分
+   （个人分与击杀保留，结算播报与战绩记录不受影响）；
+2. 30 秒投票窗口：`/taketori overtime`（等价 `/taketori match overtime`）投同意；
+3. 任一队全员同意，或某队已经没人（此时一人投票即通过）→ 立刻开打；
+4. 窗口到期仍没通过 → 按防守方守住包点结算（蓝队胜；蓝队已无人则平局；有包点的场地照
+   `blue-keep-score` / `red-consolation-score` 给保底分）；
+5. 加时纯 PVP：包点收掉、占点关闭，每击杀一名敌人记 `overtime.kill-score`（默认 1）个人头，
+   记分板多一行「加时人头: 红 N : 蓝 M」；
+6. 打满 `duration-seconds` 比人头：多者胜，相同判平局。
+
+加时只改「怎么判胜负」：击杀回血、掉落、复活与个人分规则都不变。
+
+## 五、基地占点（PVP 专属，base 段）
 
 | 键 | 默认 | 说明 |
 | --- | --- | --- |
@@ -75,7 +131,7 @@ match:
 得分 `scoring.base-capture`。基地区域用 `/taketori arena setbase <red|blue> [编号]`
 划定（见 [区域配置](regions.md)）。
 
-## 五、战斗参数（combat 段，两模式共用）
+## 六、战斗参数（combat 段，两模式共用）
 
 | 键 | 默认 | 说明 |
 | --- | --- | --- |
@@ -89,7 +145,7 @@ match:
 
 角色数值（血量、攻速等属性）在 `characters.yml`，不在本文范围。
 
-## 六、月人（minion 段）
+## 七、月人（minion 段）
 
 | 键 | 默认 | 说明 |
 | --- | --- | --- |
@@ -109,7 +165,7 @@ match:
 伤害/状态结算口径见 `SkillTargets.isFilteredTarget`：受友伤保护的队友、召唤物、
 观战者、笼内/等待区保护期玩家对月人技能与对玩家技能同一套判定。
 
-## 七、PVE 专属（pve 段）
+## 八、PVE 专属（pve 段）
 
 ### 难度
 
@@ -148,7 +204,7 @@ match:
 PVE 的胜负路径：`score-to-win` 达分获胜；据点被拆且
 `end-match-on-destroyed: true` 时结束对局（管理指令停止不写战绩）。
 
-## 八、PVE 房间要点
+## 九、PVE 房间要点
 
 - 满员人数 `waiting.pve-full-players`（0 = 取 `match.team-size`）；
 - 分队不需要选边：开局时未选队者统一并红队，等待区不会因「未选队伍」卡开局；

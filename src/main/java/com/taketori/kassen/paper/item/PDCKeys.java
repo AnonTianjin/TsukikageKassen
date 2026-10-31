@@ -96,6 +96,39 @@ public final class PDCKeys {
      */
     private static NamespacedKey midMinion;
 
+    /**
+     * 拆弹钳标记（字节 1）。
+     *
+     * <p>商店买的剪刀与普通剪刀外观一致，只能靠这个键认出来：拆弹读条要按它
+     * 决定用 {@code bomb.defuse-seconds-clipper} 还是 {@code bomb.defuse-seconds-bare}，
+     * 回合结束的清理也靠它把商店货收走。</p>
+     */
+    private static NamespacedKey defuseClipper;
+
+    /**
+     * 地雷标记（字节 1）。
+     *
+     * <p>埋在地上的绊线钩靠它认身份——只有带这个键的绊线钩才会被当成地雷去检测触发，
+     * 玩家自己摆的绊线钩不受影响。</p>
+     */
+    private static NamespacedKey landMine;
+
+    /**
+     * 地雷的埋设队伍（red / blue）。
+     *
+     * <p>触发判定要区分敌我：自己队埋的雷不该炸自己人，所以得把埋雷时的队伍记在实体上。
+     * 存 {@code TeamId.key()} 而不是枚举名，是为了和其它队伍标记保持同一套字符串。</p>
+     */
+    private static NamespacedKey landMineOwner;
+
+    /**
+     * 商人 NPC 的归属队伍（red / blue）。
+     *
+     * <p>商人 NPC 是带名字的实体，重开一局时按这个键把旧 NPC 清掉再生成新的，
+     * 避免一局一局叠出一排商人。值同样是 {@code TeamId.key()}。</p>
+     */
+    private static NamespacedKey shopNpc;
+
     private PDCKeys() {
     }
 
@@ -139,6 +172,10 @@ public final class PDCKeys {
         towerGuardIndex = new NamespacedKey(plugin, "tower_guard_index");
         sengokuBreakerTeam = new NamespacedKey(plugin, "sengoku_breaker_team");
         midMinion = new NamespacedKey(plugin, "mid_minion");
+        defuseClipper = new NamespacedKey(plugin, "defuse_clipper");
+        landMine = new NamespacedKey(plugin, "land_mine");
+        landMineOwner = new NamespacedKey(plugin, "land_mine_owner");
+        shopNpc = new NamespacedKey(plugin, "shop_npc");
 
         projEchoBonus = new NamespacedKey(plugin, "proj_echo_bonus");
         projMarkBonus = new NamespacedKey(plugin, "proj_mark_bonus");
@@ -331,5 +368,25 @@ public final class PDCKeys {
     /** 中地小兵标记。 */
     public static NamespacedKey midMinion() {
         return midMinion;
+    }
+
+    /** 拆弹钳标记（商店买的剪刀）。 */
+    public static NamespacedKey defuseClipper() {
+        return defuseClipper;
+    }
+
+    /** 地雷标记（埋好的绊线钩）。 */
+    public static NamespacedKey landMine() {
+        return landMine;
+    }
+
+    /** 地雷的埋设队伍（{@code TeamId.key()}）。 */
+    public static NamespacedKey landMineOwner() {
+        return landMineOwner;
+    }
+
+    /** 商人 NPC 的归属队伍（{@code TeamId.key()}）。 */
+    public static NamespacedKey shopNpc() {
+        return shopNpc;
     }
 }

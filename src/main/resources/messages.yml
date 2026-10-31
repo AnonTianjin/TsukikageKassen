@@ -37,6 +37,8 @@ command:
   qmode-set: '<green>Q 键行为已设为 <white>{mode}</white>（本次运行有效）。'
   qmode-persist: '<gray>永久生效请修改 config.yml 的 <white>input.q-mode</white> 后 /taketori reload。'
   play-hint: '<gray>你的角色：<white>{character}</white><gray>，武器：<white>{weapons}'
+  usage-shop: '<gray>用法：<white>/taketori shop</white> 打开界面，<white>/taketori shop <clipper|mine></white> 直接购买，<white>/taketori shop setnpc <red|blue></white> 记录商人位置。'
+  usage-overtime: '<gray>用法：<white>/taketori overtime</white>（常规时间打完、比分未达标时投票进入加时赛）。'
 
 input:
   on-cooldown: '<red>{skill}</red> <gray>冷却中：<white>{time}s'
@@ -255,3 +257,29 @@ room-shell:
   info-outside: '<gray>你当前不在房间内'
   info-phase: '<gray>阶段：<white>{phase}'
   info-team: '<gray>你的队伍：<white>{team}'
+
+# 队伍商店（商人 NPC / 指令打开的 27 格界面）
+#   · 拆弹钳只有红队能买，地雷只有蓝队能买——判错队伍的提示走 wrong-team
+#   · 界面里的 lore 是单行字符串（Messages 只收字符串值，写成列表会被忽略）
+#   · 占位符必须与 ShopMenu 的调用一致：lore 用 {clipper-seconds}/{bare-seconds}/{kill-radius}/{trigger-radius}，
+#     价格行用 {cost}/{max}，余额用 {score}
+shop:
+  title: '<dark_gray>{team} 商店'
+  balance: '<gray>当前积分：<white>{score}'
+  # 拆弹钳（红队专属）
+  clipper:
+    name: '<gold>拆弹钳'
+    lore: '<gray>红队专属 · 拆弹读条缩短至 <white>{clipper-seconds}s</white>（空手需 <white>{bare-seconds}s</white>）'
+    cost: '<gray>价格：<white>{cost}</white> 积分 · 限购 <white>{max}</white> 把/人'
+  # 地雷（蓝队专属）
+  mine:
+    name: '<aqua>地雷'
+    lore: '<gray>蓝队专属 · 杀伤半径 <white>{kill-radius}</white> 格（必死）· 触发半径 <white>{trigger-radius}</white> 格'
+    cost: '<gray>价格：<white>{cost}</white> 积分 · 限购 <white>{max}</white> 个/队'
+  close: '<red>关闭商店'
+  hint: '<gray>点击购买 · 右键商人可随时打开'
+  # 购买失败/不可用的提示（成功与位置记录由对局内播报硬编码，这里不再重复一份）
+  insufficient: '<red>积分不足：需要 <white>{cost}</white> 分，你只有 <white>{score}</white> 分。'
+  limit: '<red>已达上限（<white>{max}</white>）。'
+  wrong-team: '<red>这件道具只有对应队伍能买：红队买拆弹钳、蓝队买地雷。'
+  not-running: '<gray>对局尚未开始，商店暂不营业。'

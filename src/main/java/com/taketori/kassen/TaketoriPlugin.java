@@ -39,6 +39,8 @@ import com.taketori.kassen.paper.match.SpectatorManager;
 import com.taketori.kassen.paper.match.StatsMenu;
 import com.taketori.kassen.paper.match.StatsTracker;
 import com.taketori.kassen.paper.scheduler.SchedulerAdapter;
+import com.taketori.kassen.paper.shop.ShopMenu;
+import com.taketori.kassen.paper.shop.ShopNpcManager;
 import com.taketori.kassen.paper.skill.SkillManager;
 import com.taketori.kassen.paper.skill.SkillRegistry;
 import com.taketori.kassen.paper.skill.impl.ArmorBreakSkill;
@@ -150,6 +152,10 @@ public final class TaketoriPlugin extends JavaPlugin {
     private com.taketori.kassen.paper.setup.ArenaSetupSession arenaSetup;
     /** 派对图形界面（成员头颅 / 邀请 / 踢人 / 解散）。 */
     private com.taketori.kassen.paper.party.PartyMenu partyMenu;
+    /** 队伍商店商人 NPC（大厅常驻实体，跨局存在）。 */
+    private ShopNpcManager shopNpc;
+    /** 队伍商店界面（右键商人打开，购买由 GameRoom 裁决）。 */
+    private ShopMenu shopMenu;
 
     /** 插件自身造成的伤害标记：防止与近战改写逻辑互相递归。 */
     private final Set<UUID> internalDamage = ConcurrentHashMap.newKeySet();
@@ -219,6 +225,11 @@ public final class TaketoriPlugin extends JavaPlugin {
         arenaSetup = new com.taketori.kassen.paper.setup.ArenaSetupSession(this);
         partyMenu = new com.taketori.kassen.paper.party.PartyMenu(this);
         getServer().getPluginManager().registerEvents(partyMenu, this);
+        // ---- 队伍商店：商人 NPC + 购买界面（界面只读房间状态，购买一律由 GameRoom 裁决）----
+        shopNpc = new ShopNpcManager(this);
+        shopMenu = new ShopMenu(this);
+        getServer().getPluginManager().registerEvents(shopMenu, this);
+        shopNpc.start();
         // ---- 管理用具：武器数据编辑 GUI（改数值 → 写回 weapons.yml → 自动 reload）----
         editor = new WeaponEditor(this);
         getServer().getPluginManager().registerEvents(new WeaponEditorListener(this), this);
@@ -296,6 +307,10 @@ public final class TaketoriPlugin extends JavaPlugin {
         }
         if (skills != null) {
             skills.cooldownBars().clearAll();   // 移除所有玩家屏幕上的冷却条
+        }
+        // 商店 NPC 是常驻实体：赶在房间世界回收之前撤掉，否则世界卸载后句柄悬空
+        if (shopNpc != null) {
+            shopNpc.stop();
         }
         // 玩法层清理：先把房内玩家送回大厅（房间世界即将卸载），再停所有房间并回收世界
         if (rooms != null) {
@@ -1136,6 +1151,16 @@ public final class TaketoriPlugin extends JavaPlugin {
 
     public com.taketori.kassen.paper.party.PartyMenu partyMenu() {
         return partyMenu;
+    }
+
+    /** 队伍商店商人 NPC（onEnable 之后非 null；start()/stop() 已在启停里调用）。 */
+    public ShopNpcManager shopNpc() {
+        return shopNpc;
+    }
+
+    /** 队伍商店界面（右键商人打开）。 */
+    public ShopMenu shopMenu() {
+        return shopMenu;
     }
 
     /** 断线重连管理。 */

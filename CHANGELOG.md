@@ -5,6 +5,90 @@
 
 ---
 
+## 2.2.0 · 角色技能表与商店修补（2026-10-31）
+
+补上九名角色的技能表，并修掉商店上线后暴露的几个问题。角色与武器的 **id 一个都没动**：
+存档、房间配置、玩家数据都按 id 记账，改 id 等于让所有人重新选角色。
+
+### 新增
+
+- `docs/characters.md`：九名角色的血量 / 移速 / 武器，以及每把武器按模式列出的按键、
+  技能类型、冷却与关键数值。由 `tools/gen-character-table.py` 从 `characters.yml` +
+  `weapons.yml` 生成，改完数值重跑即可，不要手改。
+- `characters.yml` 头注释补上 id 与显示名的对应关系，避免以后再被「顺手改 id」。
+
+### 变更
+
+- `docs/shop-and-bomb.md` 的商店说明补上「背包满买不了」「地雷落点限制」。
+
+### 修复
+
+- 商人右键没反应、照开原版空交易界面：村民的原版交互走 `mobInteract`，服务端派发的是
+  `PlayerInteractEntityEvent` 而不是 `PlayerInteractAtEntityEvent`，现在两个事件都接。
+- 商人外观改成红队铁匠 / 蓝队工具匠，不再是一副「野村民」样子。
+- 商店界面与内核的上限口径统一：界面不再自己数背包，直接问 `GameRoom` 的
+  `clipperDenyReason` / `landMineDenyReason`，钳子「持有数」与地雷「已布下数」两套账合一。
+- 地雷落点四道守卫：必须在场地内、不能盖在包点上、不能盖在已有地雷上、必须是可放置的方块。
+- 背包满时不再扣分：先要求腾出一格；真的溢出也只掉落到脚下，且掉落前抹掉 `land_mine` /
+  `defuse_clipper` 标记，避免被队友捡去绕过限购。
+- `shop.npc.enabled: false` 时清掉地图上残留的商人；配置了世界名但那个世界没加载时
+  这一轮直接跳过，不再退回大厅世界生成一只并顺手删掉真商人。
+
+---
+
+## 2.1.0 · 队伍商店、读条拆弹与加时赛（2026-10-31）
+
+PVP 攻防从「连点拉杆」换成 CS 式读条拆弹，补上两队的局内商店与超时加时赛；构建基线同步抬到
+Paper 26.1.2 + Java 25。
+
+### 新增
+
+- 队伍商店（`shop` 段）。两队各一个商人 NPC（默认红队商人 / 蓝队商人，村民：无敌、无 AI、
+  静音、不推动、不受伤）+ 27 格商店界面，右键商人或 `/taketori shop`（等价 `/taketori buy`）
+  打开，商品按队伍摆放。位置跟随大厅：`shop.npc.<red|blue>.world` 留空取大厅出生点所在世界，
+  坐标全 0 取大厅出生点坐标；`/taketori shop setnpc <red|blue>` 现场挪人并写回 config.yml。
+  看护任务每 10 秒跑一次，NPC 被杀或区块重载后自动补回，孤儿 NPC 一并清掉。
+- 拆弹钳（红队，`shop.defuse-clipper.cost` 默认 30 分，每人 2 把）。背包里带着它拆包把读条从
+  10 秒缩到 6 秒；死亡即清空背包里的钳子，购买额度不退。
+- 地雷（蓝队，`shop.land-mine.cost` 默认 40 分，每队 2 枚）。右键埋成石质压力板，有人进入
+  `trigger-radius`（3 格）即引爆，`kill-radius`（5 格）内在册玩家直接死亡；爆炸零伤害、
+  不破坏方块、不点火。
+- 加时赛（`overtime` 段）。时间到双方都没到目标分 → 队伍比分清零 + 30 秒投票 → 60 秒纯 PVP 比人头。
+  加时开始后包点收掉、占点关闭，只算人头（`overtime.kill-score`，默认 1）。
+  `/taketori overtime`（等价 `/taketori match overtime`）投同意票，任一队全员同意即开打；
+  某队已无人时一人投票即通过；窗口到期没通过按「防守方守住」结算。记分板多一行
+  「加时人头: 红 N : 蓝 M」。
+
+### 变更
+
+- 炸弹重做：包点激活后换成 TNT，红队站进 4.5 格内左键开始读条、右键取消；空手
+  `bomb.defuse-seconds-bare`（10 秒），背包里带着拆弹钳 `bomb.defuse-seconds-clipper`（6 秒）。
+  离开范围、死亡、掉线、换队都会中断，`bomb.reset-seconds`（7 秒）内没人接手则进度归零，
+  复位提示只发给红队。拆开 → 红队直接获胜；`bomb.defuse-time-limit-seconds`（110 秒）没拆完 →
+  蓝队守住，进「基地争夺」：蓝队 +`blue-keep-score`（200）、红队 +`red-consolation-score`（50），
+  基地随后开放，按占点 / 互杀 / 清月人继续累计到目标分。
+- 包点相位化（`BombPhase`：自由时段 → 拆弹窗口 → 抢基地），开局到
+  `bomb.activation-delay-seconds`（40 秒）才激活；记分板显示「包点: 未激活 / 拆除中 Ns /
+  蓝队守住」。没设包点的场地不进相位机，仍按「基地开放延迟 + 分数」判胜负。
+- 记分板与播报文案同步：读条进度按「已读 / 需要」显示，超时结算当场播报双方得分。
+
+### 迁移
+
+- `config-version` 11 → 12。迁移时删除退役键 `bomb.defuse-clicks` 并打一条警告，其余老键原样
+  保留；`bomb` 的五个新键、`shop` 与 `overtime` 两段由插件补默认值。
+- 场地不需要改：`arenas.yml` 的包点坐标沿用，只是从「拉杆」变成「TNT + 读条」。
+
+### 构建
+
+- Paper 1.21.4 → 26.1.2（`paper-api:26.1.2.build.74-stable`），Java 21 → 25：Gradle 工具链与
+  `--release 25`，`tools/` 离线断言同用 25，`build-offline.ps1` 与两个 CI 工作流一起换。
+- `plugin.yml` 的 `api-version` 改为 `26.1.2`；服务端低于该版本会拒绝加载。
+- 离线断言 9 → 10：新增 `offlineBombShopRules`（`tools/BombShopRulesTest.java`，39 条断言），
+  覆盖炸弹相位参数、商店购买规则与加时赛判定。
+- 版本号 2.0.1 → 2.1.0。
+
+---
+
 ## 2.0.1 · CS 式拆包攻防
 
 PVP 玩法从纯计分改成「计分 + 目标物」双获胜条件：场地只要有包点，进攻方还能靠拆包直接赢下

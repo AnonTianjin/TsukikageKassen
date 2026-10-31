@@ -1,17 +1,17 @@
 name: TsukikageKassen
 version: '${version}'
 main: com.taketori.kassen.TaketoriPlugin
-# api-version 只接受"主版本.次版本"。目标服务端是 Paper 1.21.4，因此写 "1.21"。
+# 26.1 起 Bukkit 接受完整的「年.版本.补丁」写法。目标服务端是 Paper 26.1.2，因此写全。
 # 写低了服务端会禁用新版 API，写高了则直接拒绝加载。
-api-version: '1.21'
-description: '月影合战：9 名角色 / 20 把武器 / 20 种技能，3v3 与 PVE（据点保卫、大波次）玩法，支持多世界服务器'
+api-version: '26.1.2'
+description: '月影合战：9 名角色 / 20 把武器 / 20 种技能 + 队伍商店（拆弹钳 / 地雷），3v3 与 PVE（据点保卫、大波次）玩法，支持多世界服务器'
 authors: [ AnonTianjin ]
 website: 'https://github.com/AnonTianjin/TsukikageKassen'
 
 commands:
   taketori:
     description: 月影合战主命令
-    usage: '/taketori <menu|admin|ranks|tag|tags|character|skills|mode|f|keys|play|match|team|arena|lobby|room|moonmap|pve|stats|leave|surrender|party|rejoin|editor|give|debug|doctor|qmode|reload>'
+    usage: '/taketori <menu|admin|ranks|tag|tags|character|skills|mode|f|keys|play|match|team|arena|lobby|room|moonmap|pve|stats|shop|buy|overtime|leave|surrender|party|rejoin|editor|give|debug|doctor|qmode|reload>'
     permission: taketori.play
 
 permissions:

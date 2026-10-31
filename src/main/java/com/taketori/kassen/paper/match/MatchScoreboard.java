@@ -148,7 +148,17 @@ public final class MatchScoreboard {
             lines.add("蓝队: " + match.teamScore(TeamId.BLUE) + "/" + match.scoreTargetOf(TeamId.BLUE));
             BombObjective bomb = room.bomb();
             if (bomb != null) {
-                lines.add("包点: " + bomb.progressText());
+                // 相位决定「包点」这行显示什么：没激活报状态、激活中报读条、超时报已守住，
+                // 否则三种情况都显示「0s/10s」，玩家根本不知道炸弹现在是什么状态。
+                switch (match.bombPhase()) {
+                    case FREE_TIME -> lines.add("包点: 未激活");
+                    case DEFUSE -> lines.add("包点: " + bomb.progressText());
+                    case BASE_FIGHT -> lines.add("包点: 蓝队守住");
+                }
+            }
+            if (match.isOvertimeActive()) {
+                lines.add("加时人头: 红 " + match.overtimeKillsOf(TeamId.RED)
+                        + " : 蓝 " + match.overtimeKillsOf(TeamId.BLUE));
             }
             lines.add("你的得分: " + match.playerScore(player.getUniqueId()));
             lines.add("本局击杀: " + match.totalKillsOf(player.getUniqueId()));
