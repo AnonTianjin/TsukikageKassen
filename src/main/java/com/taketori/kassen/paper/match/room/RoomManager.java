@@ -203,7 +203,9 @@ public final class RoomManager {
     }
 
     /**
-     * 启动/重载清理：删除崩溃遗留的房间世界（kassen_*）与模板编辑副本（k_tpl_*）。
+     * 启动/重载清理：删除崩溃遗留的房间世界（kassen_*），
+     * 模板编辑副本（k_tpl_*）则先转存到 {@code moonmap-recover/<名>} 再删——
+     * 那份副本里可能有唯一一份地形，直接删等于把地图丢了。
      * 已加载的先卸载（不保存），文件夹异步删除。
      */
     public void cleanupStaleWorlds() {
@@ -230,7 +232,19 @@ public final class RoomManager {
                     Bukkit.unloadWorld(loaded, false);
                     plugin.getLogger().warning("[room] 已卸载残留世界 " + name);
                 }
-                plugin.getLogger().warning("[room] 清理上次运行残留的世界文件夹：" + name);
+                if (staleTemplateCopy) {
+                    // 编辑副本里可能有唯一一份地形（崩服/没写回）：先转存到 moonmap-recover，
+                    // 下次 moonmap load 会自动取用；只有已知有转存副本时才敢直接删。
+                    String templateName = name.substring(TEMPLATE_EDIT_PREFIX.length());
+                    File recover = new File(new File(plugin.getDataFolder(), "moonmap-recover"), templateName);
+                    if (!recover.exists() && stashEditDirToRecover(child, recover)) {
+                        continue;
+                    }
+                    plugin.getLogger().warning("[room] 清理上次运行遗留的模板编辑副本：" + name
+                            + "（moonmap-recover/" + templateName + " 已存在，保留转存副本）");
+                } else {
+                    plugin.getLogger().warning("[room] 清理上次运行残留的世界文件夹：" + name);
+                }
                 deleteFolderWithRetry(child, name, 1);
             }
         }
@@ -378,8 +392,23 @@ public final class RoomManager {
         }
         // 旧图被人删了 level.dat 是常见事故：先补一份再判定，别让模板直接被打回
         ensureTemplateLevelDat(templateDir);
-        if (!isWorldFolder(templateDir)) {
+        // 模板可能是整个 level 根目录（world/ 直接拷进来）：解析到真正装 region/ 的那一层再复制
+        final File contentDir = templateSource(templateDir);
+        if (contentDir == null) {
             creator.sendMessage(plugin.config().messages().get("room.moonmap-not-world",
+                    "template", template.id()));
+            return;
+        }
+        if (!contentDir.equals(templateDir)) {
+            plugin.getLogger().info("[room] 模板 " + template.id() + " 是整份 level 目录，"
+                    + "按世界内容复制：" + contentDir);
+        }
+        // 没有 region/*.mca 的模板复制过去只会得到一个空世界：宁可在建房前说清楚
+        int templateRegions = regionFileCount(contentDir);
+        if (templateRegions == 0) {
+            plugin.getLogger().warning("[room] 模板 " + template.id() + " 没有已生成的地形"
+                    + "（region/*.mca 为 0），房间世界会是空图。世界内容目录：" + contentDir);
+            creator.sendMessage(plugin.config().messages().get("room.template-no-terrain",
                     "template", template.id()));
             return;
         }
@@ -400,7 +429,7 @@ public final class RoomManager {
         CompletableFuture
                 .supplyAsync(() -> {
                     deleteFolders(staleCopies);
-                    return copyWorldFolder(templateDir, target);
+                    return copyWorldFolder(contentDir, target);
                 }, worldIo)
                 .whenComplete((copied, error) -> plugin.scheduler().runSync(() -> {
                     pendingCreations.decrementAndGet();
@@ -457,6 +486,10 @@ public final class RoomManager {
             return;
         }
         applyRoomWorldRules(world);
+        // 落盘位置与地形数量都记一笔：房间世界「起得来但空图」时，这两行是唯一能定位的证据
+        File loadedFolder = world.getWorldFolder();
+        plugin.getLogger().info("[room] 房间世界 " + worldName + " 已加载：folder=" + loadedFolder
+                + " region=" + regionFileCount(loadedFolder) + " 文件");
         ArenaDef arena = template.copyForWorld(worldName);
         GameRoom room = new GameRoom(plugin, this, arena, Long.parseLong(roomId), template.id(), creatorId, mode);
         rooms.put(roomId, room);
@@ -577,11 +610,12 @@ public final class RoomManager {
         return new ArrayList<>(candidates);
     }
 
-    /** 候选里第一个真正可用的世界文件夹（moonmap 导入用），没有就返回 null。 */
+    /** 候选里第一个真正可用的世界内容目录（moonmap 导入用），没有就返回 null。 */
     private File resolveWorldFolder(String worldName) {
         for (File candidate : worldFolderCandidates(worldName)) {
-            if (isWorldFolder(candidate)) {
-                return candidate;
+            File content = templateSource(candidate);
+            if (content != null) {
+                return content;
             }
         }
         return null;
@@ -622,20 +656,59 @@ public final class RoomManager {
     }
 
     /**
-     * 目录是否是可用的「世界文件夹」（可直接当模板/房间世界）。
+     * 目录是否是可用的「世界」（可直接当模板/房间世界）。
      *
-     * <p>26.1 起世界设置被拆到 {@code data/minecraft/*.dat}，维度文件夹里不再必须有
-     * {@code level.dat}，所以同时接受旧版（level.dat）与新版（region/entities/data）布局；
-     * 含 {@code dimensions} 子目录的是整个 level 根目录，不能当单个世界使用。</p>
+     * <p>两种布局都算：单个维度的世界文件夹（旧版 {@code level.dat}，或 26.1 的
+     * {@code region/}+{@code data/}），以及整份服务端 level 根目录（含 {@code level.dat} 与
+     * {@code dimensions/minecraft/overworld}）——后者会自动下钻，见 {@link #templateSource(File)}。</p>
      */
     static boolean isWorldFolder(File dir) {
-        return dir != null
-                && dir.isDirectory()
-                && !new File(dir, "dimensions").isDirectory()
-                && (new File(dir, "level.dat").isFile()
-                    || new File(dir, "region").isDirectory()
-                    || new File(dir, "entities").isDirectory()
-                    || new File(dir, "data").isDirectory());
+        return templateSource(dir) != null;
+    }
+
+    /** 统计世界文件夹里已生成的地形区域文件数（{@code region/*.mca}）。 */
+    static int regionFileCount(File worldDir) {
+        if (worldDir == null) {
+            return 0;
+        }
+        File region = new File(worldDir, "region");
+        File[] files = region.listFiles((dir, name) -> name.toLowerCase(java.util.Locale.ROOT).endsWith(".mca"));
+        return files == null ? 0 : files.length;
+    }
+
+    /**
+     * 从给定的目录里解析出「真正要复制的世界内容层」。
+     *
+     * <p>服主往 {@code plugins/TsukikageKassen/moonmaps/} 里放模板时，很容易直接拷进来一整个
+     * 服务端 {@code world/} 目录（或者 1.21 时代带 {@code level.dat} 的老世界文件夹）。前者如果
+     * 原样复制进 {@code dimensions/minecraft/<名>}，Paper 会把外层当成 level 根目录来读，
+     * 地形全在 {@code dimensions/minecraft/overworld} 里 —— 地图就变成空白/默认地形。
+     * 所以这里统一解析到真正装 {@code region/} 的那一层，调用方只负责复制它。</p>
+     *
+     * @return 可复制的目录；不是世界就返回 null
+     */
+    static File templateSource(File dir) {
+        if (dir == null || !dir.isDirectory()) {
+            return null;
+        }
+        File overworld = new File(dir, "dimensions/minecraft/overworld");
+        if (overworld.isDirectory()) {
+            return overworld;
+        }
+        File dimensions = new File(dir, "dimensions/minecraft");
+        if (new File(dir, "level.dat").isFile() && dimensions.isDirectory()) {
+            File[] children = dimensions.listFiles(File::isDirectory);
+            if (children != null && children.length > 0) {
+                return children[0];
+            }
+        }
+        if (new File(dir, "level.dat").isFile()
+                || new File(dir, "region").isDirectory()
+                || new File(dir, "entities").isDirectory()
+                || new File(dir, "data").isDirectory()) {
+            return dir;
+        }
+        return null;
     }
 
     /**
@@ -905,7 +978,9 @@ public final class RoomManager {
         }
         // 世界文件夹要在卸载前取：26.1 下它不在服务器根目录，而在 dimensions/minecraft 里
         File loadedFolder = world.getWorldFolder();
-        final File worldDir = loadedFolder != null ? loadedFolder : worldCopyTarget(worldName);
+        final File loadedDir = loadedFolder != null ? loadedFolder : worldCopyTarget(worldName);
+        final File loadedContent = templateSource(loadedDir) != null ? templateSource(loadedDir) : loadedDir;
+        final File worldDir = loadedContent;
         Bukkit.unloadWorld(world, true);
         File target = new File(new File(plugin.getDataFolder(), "moonmaps"), templateName);
         CompletableFuture.runAsync(() -> {
@@ -1453,12 +1528,17 @@ public final class RoomManager {
             admin.sendMessage(plugin.config().messages().get("room.template-missing", "template", templateName));
             return;
         }
-        // 旧图被删了 level.dat 时先补一份；26.1 维度布局本来就没有，靠 isWorldFolder 判
+        // 旧图被删了 level.dat 时先补一份；26.1 维度布局本来就没有，靠 templateSource 判
         ensureTemplateLevelDat(source);
-        if (!isWorldFolder(source)) {
+        final File contentDir = templateSource(source);
+        if (contentDir == null) {
             pendingMoonmaps.remove(templateName);
             admin.sendMessage(plugin.config().messages().get("room.moonmap-not-world", "template", templateName));
             return;
+        }
+        if (!contentDir.equals(source)) {
+            admin.sendMessage(plugin.config().messages().get("room.moonmap-level-root",
+                    "layer", contentDir.getName()));
         }
         File target = worldCopyTarget(worldName);
         admin.sendMessage(plugin.config().messages().get("room.moonmap-loading", "template", templateName));
@@ -1477,7 +1557,7 @@ public final class RoomManager {
                                     + "复制可能混入旧区块：" + target);
                         }
                     }
-                    return copyWorldFolder(source, target);
+                    return copyWorldFolder(contentDir, target);
                 }, worldIo)
                 .whenComplete((copied, error) -> plugin.scheduler().runSync(() -> {
                     pendingMoonmaps.remove(templateName);
@@ -1585,7 +1665,8 @@ public final class RoomManager {
                     // 目标不在、但留着备份：那可能是上一轮回滚失败后仅存的旧图，必须保留，
                     // 不能当垃圾清掉（清掉就永久失去旧模板）。
                 }
-                if (!copyWorldFolder(editDir, target)) {
+                File editContent = templateSource(editDir) != null ? templateSource(editDir) : editDir;
+                if (!copyWorldFolder(editContent, target)) {
                     // 写回失败：回滚旧模板，编辑副本转存 moonmap-recover（防启动清理误删，下次 load 自动恢复）
                     deleteRecursively(target);
                     if (backup.exists()) {

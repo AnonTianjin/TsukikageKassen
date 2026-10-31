@@ -5,6 +5,37 @@
 
 ---
 
+## 2.2.3 · 房间世界空图的根因修复（2026-10-31）
+
+2.2.1 把「带 `dimensions/` 的目录不算世界」当成硬规则，堵住了把整个存档根目录丢进
+`moonmaps/` 的做法；可服主最常做的恰恰是拷一份完整 `world/` 当模板。这种模板被原样复制进
+`dimensions/minecraft/<房间名>` 后，Paper 把外层当存档根目录读，真正的地形埋在里层
+`dimensions/minecraft/overworld/`——房间世界起得来、也能走路，但整片是空图。
+
+### 修复
+
+- 新增 `templateSource(File)`：把模板解析到「真正装 `region/` 的那一层」。整份存档根目录
+  → `dimensions/minecraft/overworld`（没有 `overworld` 时取第一个维度子目录）；维度世界文件夹
+  或旧版世界 → 自身；都不像世界 → `null`。`isWorldFolder` 改为委托它，建房、`moonmap load`、
+  `moonmap` 写回、`moonmap import` 四处都改为复制这一层，并在日志里写明下钻到了哪里。
+- 模板里 `region/*.mca` 为 0 时**建房前就拦下**（`room.template-no-terrain`）：以前会安静地
+  造一个空房间，白占一个房号和一张图。提示按模板名给出下一步（先进编辑世界把地图生成/搭好
+  再 `unload` 保存）。
+- 房间世界加载成功后必打一行 `[room] 房间世界 <名> 已加载：folder=… region=N 文件`：
+  以后再遇到「空图」可直接判断是模板没地形，还是复制落错位置。
+
+### 修复（数据安全）
+
+- 启动清理不再直接删 `k_tpl_*`（模板编辑副本）：先转存到 `plugins/TsukikageKassen/moonmap-recover/<模板名>`，
+  `moonmap load` 会优先取用它。编辑期间崩服/没写回时，那份副本往往是唯一地形，原来重启即被清掉。
+
+### 文档
+
+- `messages.yml` 的 `room.moonmap-not-world` 改成准确说法（需含 `region/` 或 `level.dat`，
+  整份存档根目录也可以），新增 `room.moonmap-level-root`、`room.template-no-terrain`。
+
+---
+
 ## 2.2.2 · 队伍识别、角色选择与 moonmap 导入提示（2026-10-31）
 
 拿上一代源码又比了一轮，挑出五处成品里看得见的行为差异补上。
