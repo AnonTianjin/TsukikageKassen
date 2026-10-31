@@ -5,6 +5,60 @@
 
 ---
 
+## 2.3.0 · 拆包战模式、统一数据层与战场信息补全（2026-10-31）
+
+把「包点」从 PVP 里的一条子机制提成独立模式，顺手补上数据持久化与几处战场信息；
+另外修掉一个会直接截断战国主线的输入层 bug。
+
+### 新增
+
+- **拆包战模式 `bomb`**：与 `pvp` / `pve` / `sengoku_3v3` 并列，别名 `pvp_bomb` / `cs` / `拆包`。
+  包点三相位（自由 → 拆弹 → 抢基地）只在拆包战房间运行；**纯 PVP 不再接管包点**，
+  场地就算划了包点也只按分数判胜负。拆包战开局会校验包点，没划直接拒绝开局并提示用法。
+  入口：`/taketori sengoku mode bomb`（全局）、`/taketori match mode bomb [房间id]`（单房）、
+  `/taketori room create <模板> bomb`，以及建房 GUI 与战国管理菜单里的按钮。
+- **统一数据持久化层**：`data/DataStore.java` 把玩家档案（角色绑定 + 隐性标签）与跨局战绩
+  收进同一套接口，实现 `YamlDataStore` / `SqliteDataStore` / `MySqlDataStore`，由
+  `config.yml` 的 `storage.type` 切换。SQL 侧建表、UPSERT、自动建库（MySQL）全自动，
+  统计键名与 `stats.yml` 一致，YAML ↔ SQL 可手工互搬。
+  驱动不写进 `plugin.yml`（下载失败会连带插件加载失败），改为运行期按需加载：
+  类路径 → `plugins/TsukikageKassen/drivers/*.jar`（`DriverShim` 注册给 `DriverManager`）；
+  Paper 26.1 自带 sqlite-jdbc 与 mysql-connector-j，通常开箱即用。
+- **头顶名牌**：名字前显示所选角色（`[角色名]`），整条名牌按当前队伍染红 / 蓝。
+  实现在 `MatchScoreboard.refreshNameTags()`：按「队伍 + 角色」组合在每位观看者的记分板上
+  注册 Team，用成员指纹短路避免每秒重发数据包。
+- **敌方目标罗盘**：非 PVE 对局在快捷栏**倒数第二格**发一枚指南针，指针与 Lore 每秒指向
+  最近的敌方基地；拆包战在拆弹阶段优先指包点、战国指敌方天守阁、抢基地阶段改回指基地。
+  只占用空格子，不覆盖玩家捡到的物品；丢落后下一秒自动补回。
+- 基地粒子标记增强：描边点数加密、加四角立柱与 12 格光柱（粉尘 + END_ROD），远处一眼看到。
+
+### 变更
+
+- 占点读条默认 **20 秒**（原 10 秒），`base.multi-player-bonus` 默认 **false**
+  （站几个人都是固定时长，不再按人数叠速）。
+- 拆包战侧栏标题改为「拆包战 3v3」；开局播报按 PVP / 拆包战 / PVE 分开措辞。
+- `/taketori character <角色id>` 支持玩家自助（此前只有管理员形态，玩家敲这条只会拿到用法提示）。
+
+### 修复
+
+| 问题 | 原因 | 处理 |
+| --- | --- | --- |
+| 手持插件武器时右键铜钟完全没反应（箭楼永远占不下来） | `InputListener` 在 LOW 优先级对右键派发技能并 `setCancelled(true)`，敲钟监听是 HIGH + `ignoreCancelled` | 铜钟判定抽到 `GameRoom.sengokuBellIndexAt`，输入层先问一句「是不是在敲钟」，是就放行不派发；敲钟监听改为 `ignoreCancelled = false` |
+| 结算 / 商人 / 队伍界面里冒出 `</color>` 字面量 | MiniMessage 里 `</color>` 不匹配任何开标签 | 四处改为正确的闭合写法（`</red>` 或直接省略） |
+| 建房 GUI 一个模板都列不出来 | 仍用 `level.dat` 判世界文件夹，26.1 维度模板天然没有 | 改用 `RoomManager.isWorldFolder`，与 `arena setup` / `moonmap load` 同口径 |
+| 基地标记每秒抛 `data (Boolean) should be Void` | `spawnParticle` 少传 data 参数，编译器选中泛型重载 | 补齐 `(Object) null` 参数，改走 `(…, extra, data, force)` 重载 |
+| 拆弹超时后罗盘仍指着已经还原的包点 | 只按模式判断目标 | 增加相位判断，进入抢基地阶段改指敌方基地 |
+
+### 验证
+
+Gradle build 全绿（`checkCorePurity` / `checkParamKeys` / `offlineCheck`，`SengokuRoundTest` 82 项）。
+
+Paper 26.1.2 + mineflayer 假人实机跑过：三种模式开局与结算、拆包战拆弹与超时抢基地、
+持武器敲钟并占塔、击破器护栏与跳跃台、战国超时按箭楼数判定、能量与必杀；
+PVE 五波推进与据点被拆；占点 20 秒双人同站不加速；罗盘在 PVP / 拆包战 / 战国 / PVE 的指向与
+补发；粒子包计数（6 秒内 dust 红蓝各 918、end_rod 432）；SQLite 与 MariaDB 11.8 的建库建表、
+写穿、重启载入，以及连不上时回退 YAML。全程服务端异常计数 0。
+
 ## 2.2.6 · 26.1 模板判定与编辑世界落点（2026-10-31）
 
 在 Paper 26.1.2 上用假人跑「外部导入地图 → 划场地 → 建房开局」链路时发现的两处问题。
