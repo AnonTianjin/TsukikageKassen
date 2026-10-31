@@ -54,3 +54,9 @@ credentials*
 # ---- 版权规避：技能表不入库 ----
 # docs/characters.md 由 tools/gen-character-table.py 按 IP 原名生成，只留在本地。
 docs/characters.md
+# ---- 本地测试服（不入库） ----
+/.jdk25/
+/testserver/
+
+# 某些环境（含本机沙箱）的 rm 会把删掉的文件挪进 .Trash-0，别让它进仓库
+/.Trash-0/

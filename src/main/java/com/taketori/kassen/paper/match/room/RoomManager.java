@@ -666,9 +666,72 @@ public final class RoomManager {
      * <p>两种布局都算：单个维度的世界文件夹（旧版 {@code level.dat}，或 26.1 的
      * {@code region/}+{@code data/}），以及整份服务端 level 根目录（含 {@code level.dat} 与
      * {@code dimensions/minecraft/overworld}）——后者会自动下钻，见 {@link #templateSource(File)}。</p>
+     *
+     * <p>对外开放给 {@code ArenaSetupSession}：场地 setup 的模板入口校验必须与
+     * {@link #loadMoonmap} 同口径，否则 26.1 的维度模板（天然没有 level.dat）在 setup 处被判死。</p>
      */
-    static boolean isWorldFolder(File dir) {
+    public static boolean isWorldFolder(File dir) {
         return templateSource(dir) != null;
+    }
+
+    /**
+     * 地图所在位置，用于把管理员送进编辑世界时落在地形上而不是原点空白处。
+     *
+     * <p>外部导入的地图基本都不在原点附近，而模板的出生点只有两个来源：{@code level.dat}
+     * （26.1 的维度形态模板没有它，26.1 也不该硬塞）或世界默认的 {@code (0,66,0)}。两者都
+     * 与地图实际位置无关，管理员进去会站在空白处，很容易误判成"地图没导进来"。</p>
+     *
+     * <p>取法：找体积最大的 {@code region/r.X.Z.mca}，用它那 512×512 格区域的中心。
+     * 不能对全部 region 文件取包围盒——世界加载时 Paper 会预生成出生点区块、管理员也可能
+     * 在原点留下痕迹，这些杂散文件会把包围盒中心拉到两片地形之间（实测落点飞到地图外）。</p>
+     */
+    public Location templateCenter(World world) {
+        if (world == null || world.getWorldFolder() == null) {
+            return null;
+        }
+        File[] files = new File(world.getWorldFolder(), "region")
+                .listFiles((dir, name) -> REGION_FILE.matcher(name).matches());
+        if (files == null || files.length == 0) {
+            return null;
+        }
+        File anchor = null;
+        for (File file : files) {
+            // 区域文件体积随已生成区块数增长：最大的一份就是地形最密的地方
+            if (anchor == null || file.length() > anchor.length()) {
+                anchor = file;
+            }
+        }
+        java.util.regex.Matcher matcher = REGION_FILE.matcher(anchor.getName());
+        if (!matcher.matches()) {
+            return null;
+        }
+        int centerX = Integer.parseInt(matcher.group(1)) * 512 + 256;
+        int centerZ = Integer.parseInt(matcher.group(2)) * 512 + 256;
+        int y = world.getHighestBlockYAt(centerX, centerZ) + 1;
+        if (y <= world.getMinHeight() + 1) {
+            // 这一列没有地形（region 文件里只有极少量区块），交给世界出生点，别把人丢进虚空
+            return null;
+        }
+        return new Location(world, centerX + 0.5, y, centerZ + 0.5);
+    }
+
+    /** {@code region/r.X.Z.mca} 文件名。 */
+    private static final java.util.regex.Pattern REGION_FILE =
+            java.util.regex.Pattern.compile("r\\.(-?\\d+)\\.(-?\\d+)\\.mca");
+
+    /**
+     * 把管理员送进编辑世界：优先落在地图包围盒中心（外部导入的地图通常不在原点），
+     * 拿不到地形时退回世界出生点。对局中/观战中不拽人，否则他会同时被登记在房间与编辑世界里。
+     */
+    private void teleportIntoEditWorld(Player admin, World world) {
+        if (admin == null || world == null) {
+            return;
+        }
+        if (roomOf(admin) != null || plugin.spectator().isSpectator(admin)) {
+            return;
+        }
+        Location center = templateCenter(world);
+        admin.teleport(center != null ? center : world.getSpawnLocation());
     }
 
     /** 统计世界文件夹里已生成的地形区域文件数（{@code region/*.mca}）。 */
@@ -1546,9 +1609,7 @@ public final class RoomManager {
             // 编辑世界已加载：把管理员直接送进去。否则他收到「已加载」却没有入口，
             // 而命令提示的「再执行 setup / moonmap load」也会空转（本方法在这里早退）。
             // 对局中/观战中不拽人：否则他被拉进编辑世界，却仍被登记为那个房间的玩家。
-            if (roomOf(admin) == null && !plugin.spectator().isSpectator(admin)) {
-                admin.teleport(existing.getSpawnLocation());
-            }
+            teleportIntoEditWorld(admin, existing);
             admin.sendMessage(plugin.config().messages().get("room.moonmap-loaded",
                     "world", worldName, "template", templateName));
             return;
@@ -1618,9 +1679,7 @@ public final class RoomManager {
                         deleteRecursively(recoverDir);
                     }
                     // 与「已加载」分支同一守卫：对局中/旁观中不把人拽进编辑世界
-                    if (roomOf(admin) == null && !plugin.spectator().isSpectator(admin)) {
-                        admin.teleport(world.getSpawnLocation());
-                    }
+                    teleportIntoEditWorld(admin, world);
                     admin.sendMessage(plugin.config().messages().get("room.moonmap-loaded",
                             "world", worldName, "template", templateName));
                 }));

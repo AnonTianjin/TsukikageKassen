@@ -2,6 +2,7 @@ package com.taketori.kassen.paper.setup;
 
 import com.taketori.kassen.TaketoriPlugin;
 import com.taketori.kassen.paper.match.ArenaDef;
+import com.taketori.kassen.paper.match.room.RoomManager;
 import org.bukkit.entity.Player;
 
 import java.io.File;
@@ -87,8 +88,18 @@ public final class ArenaSetupSession {
             return null;
         }
         File templateDir = new File(new File(plugin.getDataFolder(), "moonmaps"), template);
-        if (!templateDir.isDirectory() || !new File(templateDir, "level.dat").isFile()) {
+        // 「目录不存在」和「目录存在但不是世界」是两个不同的运维动作，提示必须分开说：
+        // 前者要放文件夹/导入世界，后者是放错了东西（放了个空目录，或层级放反）。
+        if (!templateDir.isDirectory()) {
             admin.sendMessage(plugin.config().messages().get("setup.no-template",
+                    "template", template));
+            return null;
+        }
+        // 与 loadMoonmap 同口径：26.1 起主世界按维度落盘，模板本身就是
+        // moonmaps/<名>/region|data|entities（没有 level.dat），用 level.dat 判会把
+        // 所有 26.1 模板打回；旧版布局（含 level.dat）与整份 level 根目录也要照旧放行。
+        if (!RoomManager.isWorldFolder(templateDir)) {
+            admin.sendMessage(plugin.config().messages().get("room.moonmap-not-world",
                     "template", template));
             return null;
         }
