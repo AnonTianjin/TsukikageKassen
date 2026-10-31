@@ -207,26 +207,32 @@ public final class RoomManager {
      * 已加载的先卸载（不保存），文件夹异步删除。
      */
     public void cleanupStaleWorlds() {
-        File container = Bukkit.getWorldContainer();
-        File[] children = container.listFiles();
-        if (children == null) {
-            return;
-        }
         String prefix = plugin.config().roomWorldPrefix();
-        for (File child : children) {
-            String name = child.getName();
-            boolean staleRoom = child.isDirectory() && isRoomWorldName(name, prefix);
-            boolean staleTemplateCopy = child.isDirectory() && name.startsWith(TEMPLATE_EDIT_PREFIX);
-            if (!staleRoom && !staleTemplateCopy) {
+        // 26.1 的房间世界落在 <level>/dimensions/minecraft 下，旧存档留在服务器根目录：
+        // 两处都要扫，否则升级后第一次启动清不掉旧残留，新布局的残留也永远看不见。
+        Set<File> roots = new LinkedHashSet<>();
+        roots.add(dimensionsRoot());
+        roots.add(Bukkit.getWorldContainer());
+        for (File root : roots) {
+            File[] children = root.listFiles();
+            if (children == null) {
                 continue;
             }
-            World loaded = Bukkit.getWorld(name);
-            if (loaded != null) {
-                Bukkit.unloadWorld(loaded, false);
-                plugin.getLogger().warning("[room] 已卸载残留世界 " + name);
+            for (File child : children) {
+                String name = child.getName();
+                boolean staleRoom = child.isDirectory() && isRoomWorldName(name, prefix);
+                boolean staleTemplateCopy = child.isDirectory() && name.startsWith(TEMPLATE_EDIT_PREFIX);
+                if (!staleRoom && !staleTemplateCopy) {
+                    continue;
+                }
+                World loaded = Bukkit.getWorld(name);
+                if (loaded != null) {
+                    Bukkit.unloadWorld(loaded, false);
+                    plugin.getLogger().warning("[room] 已卸载残留世界 " + name);
+                }
+                plugin.getLogger().warning("[room] 清理上次运行残留的世界文件夹：" + name);
+                deleteFolderWithRetry(child, name, 1);
             }
-            plugin.getLogger().warning("[room] 清理上次运行残留的世界文件夹：" + name);
-            deleteFolderWithRetry(child, name, 1);
         }
     }
 
@@ -246,17 +252,22 @@ public final class RoomManager {
 
     /** 已存在的房间世界文件夹的最大序号（新房间序号接续它，避免命名冲突）。 */
     private long highestExistingWorldNumber() {
-        File container = Bukkit.getWorldContainer();
-        File[] children = container.listFiles();
-        if (children == null) {
-            return 0L;
-        }
         String prefix = plugin.config().roomWorldPrefix();
+        // 维度目录与旧版根目录都算：升级过一次的服务器两边都可能留着 kassen_N
+        Set<File> roots = new LinkedHashSet<>();
+        roots.add(dimensionsRoot());
+        roots.add(Bukkit.getWorldContainer());
         long max = 0L;
-        for (File child : children) {
-            String name = child.getName();
-            if (child.isDirectory() && isRoomWorldName(name, prefix)) {
-                max = Math.max(max, Long.parseLong(name.substring(prefix.length())));
+        for (File root : roots) {
+            File[] children = root.listFiles();
+            if (children == null) {
+                continue;
+            }
+            for (File child : children) {
+                String name = child.getName();
+                if (child.isDirectory() && isRoomWorldName(name, prefix)) {
+                    max = Math.max(max, Long.parseLong(name.substring(prefix.length())));
+                }
             }
         }
         return max;
@@ -365,7 +376,9 @@ public final class RoomManager {
                     "template", template.id()));
             return;
         }
-        if (!new File(templateDir, "level.dat").isFile()) {
+        // 旧图被人删了 level.dat 是常见事故：先补一份再判定，别让模板直接被打回
+        ensureTemplateLevelDat(templateDir);
+        if (!isWorldFolder(templateDir)) {
             creator.sendMessage(plugin.config().messages().get("room.moonmap-not-world",
                     "template", template.id()));
             return;
@@ -381,16 +394,21 @@ public final class RoomManager {
         pendingCreators.add(creatorId);
         creator.sendMessage(plugin.config().messages().get("room.creating-world",
                 "room", template.display()));
-        File target = new File(Bukkit.getWorldContainer(), worldName);
+        File target = worldCopyTarget(worldName);
+        // 残留副本必须先清：copyWorldFolder 是合并语义，直接复制会把两次的区块混成一个世界
+        List<File> staleCopies = worldFolderCandidates(worldName);
         CompletableFuture
-                .supplyAsync(() -> copyWorldFolder(templateDir, target), worldIo)
+                .supplyAsync(() -> {
+                    deleteFolders(staleCopies);
+                    return copyWorldFolder(templateDir, target);
+                }, worldIo)
                 .whenComplete((copied, error) -> plugin.scheduler().runSync(() -> {
                     pendingCreations.decrementAndGet();
                     pendingCreators.remove(creatorId);
                     // 复制期间发生了 reload：代次已变，这份副本必须丢弃，绝不注册
                     if (generation.get() != createdInGeneration) {
                         if (Boolean.TRUE.equals(copied)) {
-                            deleteFolderWithRetry(target, worldName, 1);
+                            deleteWorldFolders(worldName, 1);
                         }
                         return;
                     }
@@ -401,13 +419,13 @@ public final class RoomManager {
                             creator.sendMessage(plugin.config().messages().get("room.create-failed",
                                     "reason", reason));
                         }
-                        deleteFolderWithRetry(target, worldName, 1);
+                        deleteWorldFolders(worldName, 1);
                         return;
                     }
                     // 创建者在等待期内已加入别的房间：不再为其注册空房，副本直接回收
                     // （掉线则保留，空房宽限期兜底；重连不影响他人）
                     if (creator.isOnline() && playerRooms.containsKey(creatorId)) {
-                        deleteFolderWithRetry(target, worldName, 1);
+                        deleteWorldFolders(worldName, 1);
                         return;
                     }
                     finishCreate(creator, creatorId, template, roomId, worldName, mode);
@@ -420,14 +438,14 @@ public final class RoomManager {
                               com.taketori.kassen.core.match.sengoku.SengokuMode mode) {
         World world;
         try {
-            world = new WorldCreator(worldName).createWorld();
+            world = createWorldCleanly(worldName);
         } catch (Throwable throwable) {
             plugin.getLogger().warning("[room] 世界 " + worldName + " 加载失败：" + throwable);
             if (creator != null && creator.isOnline()) {
                 creator.sendMessage(plugin.config().messages().get("room.create-failed",
                         "reason", String.valueOf(throwable.getMessage())));
             }
-            deleteFolderWithRetry(new File(Bukkit.getWorldContainer(), worldName), worldName, 1);
+            deleteWorldFolders(worldName, 1);
             return;
         }
         if (world == null) {
@@ -435,7 +453,7 @@ public final class RoomManager {
                 creator.sendMessage(plugin.config().messages().get("room.create-failed",
                         "reason", "服务器未能加载世界"));
             }
-            deleteFolderWithRetry(new File(Bukkit.getWorldContainer(), worldName), worldName, 1);
+            deleteWorldFolders(worldName, 1);
             return;
         }
         applyRoomWorldRules(world);
@@ -491,6 +509,206 @@ public final class RoomManager {
         world.setAutoSave(false);
     }
 
+    // ------------------------------------------------------- 世界文件夹布局（1.21 ↔ 26.1）
+
+    /**
+     * 房间/模板世界应当落盘的父目录，等同 {@link WorldCreator} 实际使用的维度目录。
+     *
+     * <p>26.1+：主世界文件夹是 {@code <level>/dimensions/minecraft/overworld}，父目录即
+     * {@code <level>/dimensions/minecraft}；旧版主世界文件夹是 {@code world/}，父目录即
+     * 服务器根目录（{@link Bukkit#getWorldContainer()}）。</p>
+     */
+    private File dimensionsRoot() {
+        List<World> worlds = Bukkit.getWorlds();
+        if (!worlds.isEmpty()) {
+            File folder = worlds.get(0).getWorldFolder();
+            if (folder != null && folder.getParentFile() != null) {
+                return folder.getParentFile();
+            }
+        }
+        try {
+            java.nio.file.Path levelDir = Bukkit.getServer().getLevelDirectory();
+            if (levelDir != null) {
+                File dimensions = levelDir.resolve("dimensions").resolve("minecraft").toFile();
+                if (dimensions.isDirectory()) {
+                    return dimensions;
+                }
+                File parent = levelDir.toFile().getParentFile();
+                if (parent != null) {
+                    return parent;
+                }
+            }
+        } catch (Throwable ignored) {
+            // 旧服务端没有 getLevelDirectory()：直接落到世界容器
+        }
+        return Bukkit.getWorldContainer();
+    }
+
+    /** 26.1 起世界按 key 落盘：名称转小写、空格换下划线。 */
+    private static String worldFolderName(String worldName) {
+        return worldName.toLowerCase(java.util.Locale.ROOT).replace(' ', '_');
+    }
+
+    private File dimensionFolder(String worldName) {
+        return new File(dimensionsRoot(), worldFolderName(worldName));
+    }
+
+    /** 副本的落盘目录：世界已加载就用它自己的文件夹，否则按当前服务端的维度布局推算。 */
+    private File worldCopyTarget(String worldName) {
+        World loaded = Bukkit.getWorld(worldName);
+        if (loaded != null && loaded.getWorldFolder() != null) {
+            return loaded.getWorldFolder();
+        }
+        return dimensionFolder(worldName);
+    }
+
+    /**
+     * 该世界名可能对应的全部文件夹：已加载世界的真实目录、当前布局的维度目录、
+     * 以及旧版服务器根目录下的同名文件夹——升级前遗留的残留要能一起清掉。
+     */
+    private List<File> worldFolderCandidates(String worldName) {
+        Set<File> candidates = new LinkedHashSet<>();
+        World loaded = Bukkit.getWorld(worldName);
+        if (loaded != null && loaded.getWorldFolder() != null) {
+            candidates.add(loaded.getWorldFolder());
+        }
+        candidates.add(dimensionFolder(worldName));
+        candidates.add(new File(Bukkit.getWorldContainer(), worldName));
+        return new ArrayList<>(candidates);
+    }
+
+    /** 候选里第一个真正可用的世界文件夹（moonmap 导入用），没有就返回 null。 */
+    private File resolveWorldFolder(String worldName) {
+        for (File candidate : worldFolderCandidates(worldName)) {
+            if (isWorldFolder(candidate)) {
+                return candidate;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 目录是否是可用的「世界文件夹」（可直接当模板/房间世界）。
+     *
+     * <p>26.1 起世界设置被拆到 {@code data/minecraft/*.dat}，维度文件夹里不再必须有
+     * {@code level.dat}，所以同时接受旧版（level.dat）与新版（region/entities/data）布局；
+     * 含 {@code dimensions} 子目录的是整个 level 根目录，不能当单个世界使用。</p>
+     */
+    static boolean isWorldFolder(File dir) {
+        return dir != null
+                && dir.isDirectory()
+                && !new File(dir, "dimensions").isDirectory()
+                && (new File(dir, "level.dat").isFile()
+                    || new File(dir, "region").isDirectory()
+                    || new File(dir, "entities").isDirectory()
+                    || new File(dir, "data").isDirectory());
+    }
+
+    /**
+     * 仅为「旧版世界文件夹被人删掉了 level.dat」补一份，避免模板被打回。
+     *
+     * <p>26.1+ 的维度文件夹本来就没有 level.dat（设置已拆到 {@code data/minecraft/*.dat}），
+     * 强行塞入主世界的 level.dat 反而会让 Paper 误判成待迁移的旧版地图，故跳过。</p>
+     */
+    public boolean ensureTemplateLevelDat(File dir) {
+        if (dir == null || !dir.isDirectory() || new File(dir, "level.dat").isFile()) {
+            return false;
+        }
+        if (new File(dir, "data").isDirectory()
+                || new File(dir, "paper-world.yml").isFile()
+                || new File(dir, "dimensions").isDirectory()) {
+            return false;
+        }
+        if (!new File(dir, "region").isDirectory() && !new File(dir, "entities").isDirectory()) {
+            return false;
+        }
+        File source = serverLevelDat();
+        if (source == null) {
+            return false;
+        }
+        try {
+            java.nio.file.Files.copy(source.toPath(), new File(dir, "level.dat").toPath(),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            plugin.getLogger().warning("[moonmap] 模板缺少 level.dat，已用主世界的补齐"
+                    + "（只影响未生成区块）：" + dir);
+            return true;
+        } catch (Exception ex) {
+            plugin.getLogger().warning("[moonmap] 补齐 level.dat 失败：" + ex.getMessage());
+            return false;
+        }
+    }
+
+    /** 主世界的 level.dat：优先服务端 level 目录，退到已加载世界里的第一个。 */
+    private File serverLevelDat() {
+        try {
+            java.nio.file.Path levelDir = Bukkit.getServer().getLevelDirectory();
+            if (levelDir != null) {
+                File candidate = levelDir.resolve("level.dat").toFile();
+                if (candidate.isFile()) {
+                    return candidate;
+                }
+            }
+        } catch (Throwable ignored) {
+            // 旧服务端没这个 API：走世界容器
+        }
+        for (World world : Bukkit.getWorlds()) {
+            File folder = world.getWorldFolder();
+            if (folder != null && new File(folder, "level.dat").isFile()) {
+                return new File(folder, "level.dat");
+            }
+        }
+        return null;
+    }
+
+    /** 世界名对应的全部残留目录一并删除（旧版容器路径与 26.1 维度路径都可能存在）。 */
+    private void deleteWorldFolders(String worldName, int retries) {
+        for (File dir : worldFolderCandidates(worldName)) {
+            if (dir.isDirectory()) {
+                deleteFolderWithRetry(dir, worldName, retries);
+            }
+        }
+    }
+
+    /** 该世界名是否已经有落盘的文件夹（任一候选位置）。 */
+    private boolean anyWorldFolderExists(String worldName) {
+        for (File dir : worldFolderCandidates(worldName)) {
+            if (dir.isDirectory()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** 同步删除若干目录（worldIo 线程内调用：复制前清残留副本）。 */    private void deleteFolders(List<File> dirs) {
+        for (File dir : dirs) {
+            if (dir.isDirectory() && !deleteRecursively(dir)) {
+                plugin.getLogger().warning("[room] 残留副本未清干净，复制可能混入旧区块：" + dir);
+            }
+        }
+    }
+
+    /**
+     * 加载房间世界，失败重试一次。
+     *
+     * <p>刚复制完的世界偶尔会因为文件句柄尚未释放（Windows 上尤其）而首次加载失败，
+     * 立刻重试一次的成本远低于让玩家看到「创建失败」并丢掉整个副本。</p>
+     */
+    private World createWorldCleanly(String worldName) {
+        try {
+            return new WorldCreator(worldName).createWorld();
+        } catch (Throwable first) {
+            plugin.getLogger().warning("[room] 世界 " + worldName + " 加载失败，重试一次："
+                    + first.getMessage());
+            try {
+                return new WorldCreator(worldName).createWorld();
+            } catch (Throwable second) {
+                plugin.getLogger().warning("[room] 世界 " + worldName + " 重试加载仍失败："
+                        + second.getMessage());
+                return null;
+            }
+        }
+    }
+
     /** 世界复制时的脏文件/目录：世界锁与唯一 id 不该复制，玩家痕迹不该进模板与房间。 */
     private static final Set<String> SKIP_COPY_FILES = Set.of("session.lock", "uid.dat");
     private static final Set<String> SKIP_COPY_DIRS = Set.of("playerdata", "stats", "advancements");
@@ -515,6 +733,13 @@ public final class RoomManager {
             }
             if (child.isFile() && SKIP_COPY_FILES.contains(name.toLowerCase(java.util.Locale.ROOT))) {
                 continue;   // 世界锁与唯一 id：每个世界应有自己的
+            }
+            // Paper 26.1 把世界 UUID 存在 data/paper/metadata.dat，跟着复制过去会让 Paper
+            // 判定成「重复世界」而拒绝加载，所以 data/paper 这一层要跳过它
+            if (child.isFile()
+                    && "metadata.dat".equals(name.toLowerCase(java.util.Locale.ROOT))
+                    && "paper".equals(source.getName().toLowerCase(java.util.Locale.ROOT))) {
+                continue;
             }
             File copy = new File(target, name);
             if (child.isDirectory()) {
@@ -626,8 +851,7 @@ public final class RoomManager {
             return;
         }
         String worldName = TEMPLATE_EDIT_PREFIX + templateName;
-        if (Bukkit.getWorld(worldName) != null
-                || new File(Bukkit.getWorldContainer(), worldName).isDirectory()) {
+        if (Bukkit.getWorld(worldName) != null || anyWorldFolderExists(worldName)) {
             admin.sendMessage(plugin.config().messages().get("room.moonmap-busy"));
             return;
         }
@@ -645,8 +869,10 @@ public final class RoomManager {
             admin.sendMessage(plugin.config().messages().get("room.create-failed", "reason", "世界创建失败"));
             return;
         }
+        // 世界文件夹要在卸载前取：26.1 下它不在服务器根目录，而在 dimensions/minecraft 里
+        File loadedFolder = world.getWorldFolder();
+        final File worldDir = loadedFolder != null ? loadedFolder : worldCopyTarget(worldName);
         Bukkit.unloadWorld(world, true);
-        File worldDir = new File(Bukkit.getWorldContainer(), worldName);
         File target = new File(new File(plugin.getDataFolder(), "moonmaps"), templateName);
         CompletableFuture.runAsync(() -> {
             try {
@@ -743,7 +969,7 @@ public final class RoomManager {
         if (plugin.config().debug()) {
             plugin.getLogger().info("[room " + room.id() + "] 世界 " + worldName + " 已卸载，文件夹回收中");
         }
-        deleteFolderWithRetry(new File(Bukkit.getWorldContainer(), worldName), worldName, 3);
+        deleteWorldFolders(worldName, 3);
     }
 
     /** 停用/重载路径：同步卸载世界（不保存），文件夹异步删除（未完成由下次启动清理兜底）。 */
@@ -754,7 +980,7 @@ public final class RoomManager {
             Bukkit.unloadWorld(world, false);
         }
         if (worldName != null) {
-            deleteFolderWithRetry(new File(Bukkit.getWorldContainer(), worldName), worldName, 1);
+            deleteWorldFolders(worldName, 1);
         }
     }
 
@@ -1193,12 +1419,14 @@ public final class RoomManager {
             admin.sendMessage(plugin.config().messages().get("room.template-missing", "template", templateName));
             return;
         }
-        if (!new File(source, "level.dat").isFile()) {
+        // 旧图被删了 level.dat 时先补一份；26.1 维度布局本来就没有，靠 isWorldFolder 判
+        ensureTemplateLevelDat(source);
+        if (!isWorldFolder(source)) {
             pendingMoonmaps.remove(templateName);
             admin.sendMessage(plugin.config().messages().get("room.moonmap-not-world", "template", templateName));
             return;
         }
-        File target = new File(Bukkit.getWorldContainer(), worldName);
+        File target = worldCopyTarget(worldName);
         admin.sendMessage(plugin.config().messages().get("room.moonmap-loading", "template", templateName));
         if (recoverDir.isDirectory()) {
             admin.sendMessage(plugin.config().messages().get("room.moonmap-recovered", "template", templateName));
@@ -1285,7 +1513,9 @@ public final class RoomManager {
                 occupant.teleport(fallback);
             }
         }
-        File editDir = new File(Bukkit.getWorldContainer(), worldName);
+        // 编辑世界还加载着，用世界自己的文件夹最准（26.1 下它在 dimensions/minecraft 里）
+        File loadedDir = world.getWorldFolder();
+        File editDir = loadedDir != null ? loadedDir : worldCopyTarget(worldName);
         File moonmapsDir = new File(plugin.getDataFolder(), "moonmaps");
         File target = new File(moonmapsDir, templateName);
         File backup = new File(moonmapsDir, templateName + "_bak");
@@ -1329,6 +1559,18 @@ public final class RoomManager {
                     }
                     notifyStashResult(adminId, editDir, recover, templateName);
                     return;
+                }
+                // 编辑世界丢过 level.dat（旧版地图常见）时，用备份里的那份救回来，
+                // 否则模板下一轮就不是世界文件夹了
+                if (!new File(target, "level.dat").isFile() && new File(backup, "level.dat").isFile()) {
+                    try {
+                        java.nio.file.Files.copy(new File(backup, "level.dat").toPath(),
+                                new File(target, "level.dat").toPath(),
+                                java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                    } catch (Exception levelDatError) {
+                        plugin.getLogger().warning("[moonmap] 恢复 level.dat 失败："
+                                + levelDatError.getMessage());
+                    }
                 }
                 deleteRecursively(backup);
                 if (recover.isDirectory()) {
@@ -1428,8 +1670,9 @@ public final class RoomManager {
             admin.sendMessage(plugin.config().messages().get("room.arena-bad-id"));
             return;
         }
-        File source = new File(Bukkit.getWorldContainer(), worldName);
-        if (!source.isDirectory() || !new File(source, "level.dat").isFile()) {
+        // 26.1 的世界在 <level>/dimensions/minecraft/<name>，旧版在容器根目录，两处都要找
+        final File source = resolveWorldFolder(worldName);
+        if (source == null) {
             admin.sendMessage(plugin.config().messages().get("room.import-not-world", "world", worldName));
             return;
         }
