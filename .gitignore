@@ -61,8 +61,5 @@ docs/characters.md
 # 某些环境（含本机沙箱）的 rm 会把删掉的文件挪进 .Trash-0，别让它进仓库
 /.Trash-0/
 
-# ---- CNB 流水线配置：只属于 cnb.cool，不进 GitHub 仓库 ----
-.cnb.yml
-
 # ---- 拆包玩法文档：只留本地，不入库 ----
 docs/bomb-defuse.md
