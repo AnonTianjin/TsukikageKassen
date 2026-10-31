@@ -49,8 +49,9 @@ TsukikageKassen v<版本> 已启用：<武器数> 把武器 / <角色数> 个角
 
 ### 1. 准备月面模板
 
-模板是 `plugins/TsukikageKassen/moonmaps/<模板名>/` 下的一个世界文件夹（必须含 `level.dat`），
-三种来源任选其一：
+模板是 `plugins/TsukikageKassen/moonmaps/<模板名>/` 下的一个世界文件夹（`level.dat`、`region/`、
+`entities/`、`data/` 任一存在即算世界；从 Paper 26.1 的 `dimensions/minecraft/<世界名>` 里搬
+过来的也一样，缺 `level.dat` 的旧图插件会用主世界那份补齐），三种来源任选其一：
 
 a. 已有地图：把世界文件夹整个复制进 `moonmaps/tsukuyomi/`（`moonmaps/` 目录首启自动创建）。
 

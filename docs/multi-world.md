@@ -41,9 +41,10 @@ moonmap list                   列出库存模板与就绪状态（缺项点名�
 
 ## 三、房间世界生命周期
 
-1. 创建（`RoomManager.createRoom`）：校验模板存在（`level.dat` 预检）与
-   `room.max-rooms` / `max-rooms-per-player` 上限 → 异步复制模板文件夹 →
-   加载世界并应用规则 → 创建者传送进等待出生点；
+1. 创建（`RoomManager.createRoom`）：校验模板存在（世界文件夹预检：`level.dat`、`region/`、
+   `entities/`、`data/` 任一存在即算世界，带 `dimensions/` 子目录的不算；缺 `level.dat` 的旧图
+   会用服务端主世界那份补齐）与 `room.max-rooms` / `max-rooms-per-player` 上限 →
+   异步复制模板文件夹 → 加载世界并应用规则 → 创建者传送进等待出生点；
 2. 使用：等待区集结 → 开局 → 结算，全程独占该世界；
 3. 回收（`destroyRoom`）：房内玩家先回大厅 → 从注册表移除 → 卸载世界（不保存）→
    异步删除世界文件夹。卸载失败按 5 秒间隔重试 5 次，仍失败则留待下次启动清理。
@@ -99,7 +100,8 @@ Multiverse 只需要知道两件事：
 | `unload` 报失败 / 世界删不掉 | 世界内有玩家或实体句柄未释放；编辑流程先传出玩家，
   房间流程重试 5 次。仍然失败则等下次启动 `cleanupStaleWorlds` 兜底 |
 | 房间世界文件夹残留 | 上一种情况的落盘结果；下次启动自动清理，也可手动删除 |
-| `moonmaps/<名>` 缺 `level.dat` | 模板不完整，`room create` 会被 `level.dat` 预检拒绝 |
+| `moonmaps/<名>` 缺 `level.dat` | 旧图被删过 `level.dat`：`room create` 会先从服务端主世界拷一份补上；若仍被拒，说明这个目录连 `region/`、`entities/`、`data/` 都没有，不是世界文件夹 |
+| 26.1 上模板导入/加载找不到世界 | Paper 26.1 把世界放在 `<服务端根>/dimensions/minecraft/<世界名>`；插件已按「已加载世界文件夹 → 维度目录 → 容器根」三级查找，若手动挪过世界请放回原位 |
 | 从资源世界进服被拽到大厅 | `takeover-worlds` 配了 `*` 或把该世界列进了白名单 |
 | 对局播报刷到别的世界 | `broadcast-scope` 配了 `all` |
 | `k_tpl_*` 世界躺在服务器目录 | 编辑中途崩了；下次启动被当残留清掉，库存模板不受影响 |
