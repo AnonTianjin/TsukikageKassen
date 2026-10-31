@@ -853,6 +853,10 @@ public final class GameRoom {
         String charId = characterIdOf(player.getUniqueId());
         if (charId != null) {
             plugin.giveCharacterWeapons(player, charId);
+        } else {
+            // 补位进来的人常常是刚上线、还没选角色：同样弹菜单，别让他空手
+            player.sendMessage(MINI.deserialize("<gold>你还没有选择角色，先选一个才能领到装备。"));
+            plugin.characterMenu().openForced(player);
         }
         ArenaDef.Point spawnPoint = arena.spawn(team);
         if (spawnPoint != null) {
@@ -1067,9 +1071,15 @@ public final class GameRoom {
             return;
         }
         int seconds = plugin.config().spawnBuffSeconds();
-        if (seconds <= 0) {
-            return;
+        if (seconds > 0) {
+            applySpawnBuffEffects(player, seconds);
         }
+        // 出生增益关掉也照样戴队帽：这顶帽子是敌我识别用的，跟 buff 是两个需求。
+        equipTeamHelmet(player);
+    }
+
+    /** 出生增益本体：读 {@code combat.spawn-buff} 的 effects 逐条挂上。 */
+    private void applySpawnBuffEffects(Player player, int seconds) {
         int ticks = seconds * 20;
         for (Map<?, ?> raw : plugin.config().spawnBuffEffects()) {
             Object typeName = raw.get("type");
@@ -1087,6 +1097,37 @@ public final class GameRoom {
             player.addPotionEffect(new org.bukkit.potion.PotionEffect(type, ticks,
                     Math.max(0, amplifier), false, true, true));
         }
+    }
+
+    /**
+     * 队伍头盔：红队深红皮革、蓝队藏青皮革，名字直接写「进攻方 / 防守方」。
+     *
+     * <p>开局与每次复活都盖一次。之所以单独一顶而不复用 {@code loadout.armor-material}：
+     * 那套甲是「强度」用的，同色同材质认不出敌我；皮革帽是唯一能染色的护甲部件，
+     * 染成队色后远处一眼可分。不可破坏 + 隐藏耐久/属性/染色提示，免得玩家在背包里
+     * 看到「可染色皮革帽」的原始词条。</p>
+     */
+    private void equipTeamHelmet(Player player) {
+        TeamId team = teams.get(player.getUniqueId());
+        if (team == null) {
+            return;
+        }
+        ItemStack helmet = new ItemStack(Material.LEATHER_HELMET);
+        ItemMeta meta = helmet.getItemMeta();
+        if (meta instanceof org.bukkit.inventory.meta.LeatherArmorMeta leather) {
+            leather.setColor(team == TeamId.RED
+                    ? org.bukkit.Color.fromRGB(176, 46, 38)
+                    : org.bukkit.Color.fromRGB(60, 68, 170));
+            leather.displayName(MINI.deserialize(team == TeamId.RED
+                    ? "<red><bold>进攻方</bold>"
+                    : "<blue><bold>防守方</bold>"));
+            leather.setUnbreakable(true);
+            leather.addItemFlags(org.bukkit.inventory.ItemFlag.HIDE_UNBREAKABLE,
+                    org.bukkit.inventory.ItemFlag.HIDE_ATTRIBUTES,
+                    org.bukkit.inventory.ItemFlag.HIDE_DYE);
+        }
+        helmet.setItemMeta(meta);
+        player.getInventory().setHelmet(helmet);
     }
 
     /** 死亡旁观的观察点：优先看中央刷怪区。 */
@@ -1370,6 +1411,10 @@ public final class GameRoom {
             String charId = characterIdOf(player.getUniqueId());
             if (charId != null) {
                 plugin.giveCharacterWeapons(player, charId);
+            } else {
+                // 没选角色就没有武器与护甲：喊一声并强制弹角色菜单，别让人空手开场。
+                player.sendMessage(MINI.deserialize("<gold>你还没有选择角色，先选一个才能领到装备。"));
+                plugin.characterMenu().openForced(player);
             }
             // 补发对局功能壳：上面的 stashAndClearInventory 会清掉等待期发的那一个，
             // 放在发武器之后是为了让壳稳定落在第 9 格（武器不会占用该格）。
@@ -2660,7 +2705,12 @@ public final class GameRoom {
                 + votedBlue + "/" + totalBlue + " <gray>已同意");
     }
 
-    /** 投票窗口到期仍未通过：按防守方守包成功结算，别让对局卡在 0-0。 */
+    /**
+     * 投票窗口到期仍未通过：判平局收场，双方都不加分。
+     *
+     * <p>没投票 = 双方都没同意再打，这时候判给任何一方都不公平（早先的写法是「防守方守包成功」
+     * 判蓝队胜，等于逼着不想加时的一方也必须投反对票才能避免被抬走）。</p>
+     */
     private void tickOvertimeVote() {
         if (!overtimeVoteOpen) {
             return;
@@ -2669,8 +2719,8 @@ public final class GameRoom {
             return;
         }
         overtimeVoteOpen = false;
-        broadcast("<yellow><bold>加时投票未通过。</bold> <gray>时间到，防守方成功守住包点。");
-        finishBlueKeep();
+        broadcast("<gray>加时投票超时未达成一致，判定平局，双方均不加分。");
+        finish(null);
     }
 
     /** 蓝队守包成功收尾（蓝队已空时按平局收，避免判给一支不存在的队）。 */

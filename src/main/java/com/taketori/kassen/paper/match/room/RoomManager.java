@@ -588,6 +588,40 @@ public final class RoomManager {
     }
 
     /**
+     * 扫一遍世界容器，列出当前能当模板导入的世界名（最多 8 个，顿号分隔）。
+     *
+     * <p>只用于导入失败时的提示：26.1 与旧版的世界落盘位置不同，管理员很难猜，
+     * 直接把他眼前真实存在的世界名报出来最快。</p>
+     */
+    private String importableWorlds() {
+        List<String> names = new ArrayList<>();
+        Set<File> roots = new LinkedHashSet<>();
+        File dimensions = dimensionsRoot();
+        if (dimensions != null) {
+            roots.add(dimensions);
+        }
+        File container = Bukkit.getWorldContainer();
+        if (container != null) {
+            roots.add(container);
+        }
+        for (File root : roots) {
+            File[] children = root.listFiles(File::isDirectory);
+            if (children == null) {
+                continue;
+            }
+            for (File child : children) {
+                if (names.size() >= 8) {
+                    break;
+                }
+                if (isWorldFolder(child) && !names.contains(child.getName())) {
+                    names.add(child.getName());
+                }
+            }
+        }
+        return String.join("、", names);
+    }
+
+    /**
      * 目录是否是可用的「世界文件夹」（可直接当模板/房间世界）。
      *
      * <p>26.1 起世界设置被拆到 {@code data/minecraft/*.dat}，维度文件夹里不再必须有
@@ -1674,6 +1708,15 @@ public final class RoomManager {
         final File source = resolveWorldFolder(worldName);
         if (source == null) {
             admin.sendMessage(plugin.config().messages().get("room.import-not-world", "world", worldName));
+            // 「导入不了」光说一句没用：把找过的位置与这里真正能导入的世界一并列出来，
+            // 管理员才知道该把地图放哪、或者名字是不是写错了。
+            File looked = worldCopyTarget(worldName);
+            admin.sendMessage("<dark_gray>  插件查找的位置：<white>" + looked.getAbsolutePath() + "</white>"
+                    + (looked.isDirectory() ? "（目录存在，但不是可用的世界文件夹）" : "（该目录不存在）"));
+            String importable = importableWorlds();
+            if (!importable.isEmpty()) {
+                admin.sendMessage("<dark_gray>  这个位置下能导入的世界：<white>" + importable);
+            }
             return;
         }
         File target = new File(new File(plugin.getDataFolder(), "moonmaps"), templateKey);

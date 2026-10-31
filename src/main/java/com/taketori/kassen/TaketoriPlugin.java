@@ -188,6 +188,7 @@ public final class TaketoriPlugin extends JavaPlugin {
 
         dataStore = new YamlPlayerDataStore(this);
         dataStore.loadAll();
+        clearCharacterBindings();
         restoreOnlinePlayers();
 
         // ---- 玩法层：场地、多房间注册表（每房自有记分板/小怪/据点/道具组件）、跨局统计 ----
@@ -656,6 +657,21 @@ public final class TaketoriPlugin extends JavaPlugin {
         loadTags();           // 隐性标签与权重
         validateConfig();
         return true;
+    }
+
+    /**
+     * 启动时清掉上一轮留下的「玩家 ↔ 角色」绑定。
+     *
+     * <p>绑定只代表「这一局想玩谁」：留着它，玩家下次进房会直接按上局的角色发装备，
+     * 换版本改了角色数值/武器表之后就变成莫名的错配。清掉后角色菜单会强制重选
+     * （等待区与补位路径都会 {@code openForced}）。隐性标签属于长期身份，不清。</p>
+     */
+    private void clearCharacterBindings() {
+        int cleared = dataStore.clearCharacters();
+        if (cleared > 0) {
+            dataStore.saveAll();
+            getLogger().info("已清除 " + cleared + " 条上局角色绑定：玩家进入房间后需要重新选择角色");
+        }
     }
 
     /** 服务器热重载 / 插件启用时，把在线玩家的绑定恢复出来。 */

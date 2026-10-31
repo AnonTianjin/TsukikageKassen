@@ -100,6 +100,13 @@ public final class YamlPlayerDataStore implements PlayerDataStore {
     }
 
     @Override
+    public int clearCharacters() {
+        int removed = bindings.size();
+        bindings.clear();
+        return removed;
+    }
+
+    @Override
     public String tagOf(UUID uuid) {
         return uuid == null ? null : tags.get(uuid);
     }
