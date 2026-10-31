@@ -15,8 +15,8 @@ import java.util.Map;
  * 基地标记：用各队颜色的粒子把双方基地圈出来，让玩家在场上一眼看清攻防目标。
  *
  * <p>基地既是攻防目标也是地图参照物，光靠 ActionBar 的拆除读条不足以建立方位感。
- * 本组件每秒在每个<b>尚未被拆</b>的基地顶面描一圈方框，并在中心点一根短立柱——
- * 远处看柱、近处看框。</p>
+ * 本组件每秒在每个<b>尚未被拆</b>的基地描一圈方框、四角立柱、中心 12 格光柱（粉尘 + END_ROD）——
+ * 远处看光柱、近处看框。</p>
  *
  * <p>已拆除的基地立即停画：「标记消失」本身就是最直观的拆除反馈，不必再额外做一套灰色状态。
  * PVE 没有拆基地玩法，所以只在 PVP 对局里启动（由 {@code GameRoom#startPlay} 决定）。</p>
@@ -30,13 +30,16 @@ public final class BaseMarker {
     /** 刷新间隔（tick）：1 秒。粒子只是提示，1 秒足够，再密只是白刷数据包。 */
     private static final long INTERVAL_TICKS = 20L;
     /** 单个基地每轮最多撒的边框点数（四条边合计，含端点）；立柱另算。 */
-    private static final int MAX_EDGE_POINTS = 44;
+    private static final int MAX_EDGE_POINTS = 56;
     /** 边框离基地顶面（方块上表面）的高度。 */
     private static final double EDGE_HEIGHT = 0.35D;
     /** 中心立柱高度（格）。 */
-    private static final int PILLAR_HEIGHT = 4;
+    /** 光柱高度（格）：顶部越远越显眼，12 格在 100 格外仍能看到一束。 */
+    private static final int BEAM_HEIGHT = 12;
+    /** 四角立柱高度（格）：给远处玩家一个「这个范围是基地」的立体感。 */
+    private static final int CORNER_HEIGHT = 3;
     /** 粉尘粒子大小（1.0 为原版默认）。 */
-    private static final float DUST_SIZE = 1.0F;
+    private static final float DUST_SIZE = 1.5F;
 
     private final GameRoom room;
     private BukkitTask task;
@@ -75,19 +78,21 @@ public final class BaseMarker {
         if (dust == null) {
             return;
         }
+        // 光柱粒子：能解析就叠一层 END_ROD（不受队伍色影响，但射程远、对比强）
+        Particle glow = plugin().versions().particle("END_ROD");
         for (TeamId team : TeamId.values()) {
             Particle.DustOptions options = new Particle.DustOptions(colorOf(team), DUST_SIZE);
             for (Map.Entry<Integer, CuboidRegion> entry : room.arena().bases(team).entrySet()) {
                 if (room.baseCapture().isCaptured(team, entry.getKey())) {
                     continue;   // 已拆除：不再标记
                 }
-                draw(entry.getValue(), dust, options);
+                draw(entry.getValue(), dust, options, glow);
             }
         }
     }
 
-    /** 顶面描边 + 中心立柱。 */
-    private void draw(CuboidRegion region, Particle dust, Particle.DustOptions options) {
+    /** 顶面描边 + 四角立柱 + 中心光柱（顶部再补一圈十字）。 */
+    private void draw(CuboidRegion region, Particle dust, Particle.DustOptions options, Particle glow) {
         World world = region.world();
         if (world == null) {
             return;
@@ -102,7 +107,7 @@ public final class BaseMarker {
         double maxZ = region.maxZ() + 0.5D;
 
         // 每条边的段数按「四条边合计不超过 MAX_EDGE_POINTS」自适应：大选区自动变稀疏，不会刷爆
-        double perEdge = Math.max(1.0D, (MAX_EDGE_POINTS - PILLAR_HEIGHT) / 4.0D);
+        double perEdge = Math.max(1.0D, MAX_EDGE_POINTS / 4.0D);
         double stepX = Math.max(1.0D, (maxX - minX) / perEdge);
         double stepZ = Math.max(1.0D, (maxZ - minZ) / perEdge);
 
@@ -115,11 +120,36 @@ public final class BaseMarker {
             point(world, dust, options, maxX, y, z);
         }
 
-        Location center = region.center();
-        if (center != null) {
-            for (int i = 0; i < PILLAR_HEIGHT; i++) {
-                point(world, dust, options, center.getX(), y + i, center.getZ());
+        // 四角立柱：远处看是四根短柱，比单圈描边更容易认出「一块区域」
+        for (double cx : new double[]{minX, maxX}) {
+            for (double cz : new double[]{minZ, maxZ}) {
+                for (int i = 0; i < CORNER_HEIGHT; i++) {
+                    point(world, dust, options, cx, y + i, cz);
+                }
             }
+        }
+
+        Location center = region.center();
+        if (center == null) {
+            return;
+        }
+        // 中心光柱：每 0.5 格一个点，交替粉尘与 END_ROD；顶部再撒一圈十字
+        for (int step = 0; step <= BEAM_HEIGHT * 2; step++) {
+            double dy = step * 0.5D;
+            if (glow != null && step % 2 == 1) {
+                // END_ROD 没有 data：必须走 (…, extra, data, force) 这个重载，
+                // 少写一个 data 参数会被编译器选中 (…, extra, T data)，把 true 当成 data 抛
+                // 「data (class java.lang.Boolean) should be class java.lang.Void」。
+                world.spawnParticle(glow, center.getX(), y + dy, center.getZ(),
+                        1, 0.0D, 0.0D, 0.0D, 0.0D, (Object) null, true);
+            } else {
+                point(world, dust, options, center.getX(), y + dy, center.getZ());
+            }
+        }
+        double topY = y + BEAM_HEIGHT + 0.5D;
+        for (double dx : new double[]{-1.0D, 0.0D, 1.0D}) {
+            point(world, dust, options, center.getX() + dx, topY, center.getZ());
+            point(world, dust, options, center.getX(), topY, center.getZ() + dx);
         }
     }
 

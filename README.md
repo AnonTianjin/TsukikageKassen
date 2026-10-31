@@ -6,7 +6,7 @@
 
 一个 Minecraft 服务端战斗插件。核心是一层用原版事件重绑按键的技能系统。
 
-角色、武器与技能全部由配置文件驱动，改数值不用重新编译。在技能层之上叠了三种玩法：3v3 积分赛、PVE 月人入侵、战国 3v3（三局两胜）。配套大厅、动态房间匹配（月宫制）、观战和跨局战绩。武器之间可以打出「挂标记 → 兑现」的组合技。
+角色、武器与技能全部由配置文件驱动，改数值不用重新编译。在技能层之上叠了四种玩法：3v3 积分赛、拆包战、PVE 月人入侵、战国 3v3（三局两胜）。配套大厅、动态房间匹配（月宫制）、观战和跨局战绩。武器之间可以打出「挂标记 → 兑现」的组合技。
 
 | 项 | 说明 |
 | --- | --- |
@@ -38,7 +38,7 @@ TsukikageKassen v<版本> 已启用：<武器数> 把武器 / <角色数> 个角
 
 > 插件的 `api-version` 声明为 `26.1.2`，服务端低于该版本会拒绝加载。
 
-装好之后的三种玩法，玩家只需要记住：大厅点告示牌「加入」或「降临月宫」建房，等倒计时归零就能开打。
+装好之后的四种玩法，玩家只需要记住：大厅点告示牌「加入」或「降临月宫」建房，等倒计时归零就能开打。
 
 ## 二、十步设置
 
@@ -215,7 +215,7 @@ c. 手头没有地图、只想先试一局：生成一张空白平坦模板：
 ```
 
 战国 3v3 的点位划分（天守阁 / 箭楼 / 铜钟 / 守卫 / 中地 / 跳跃台）用 `/taketori sengoku`，
-详见[玩法说明](#33-三种对局模式)与[指令参考](#四指令参考)。
+详见[玩法说明](#33-四种对局模式)与[指令参考](#四指令参考)。
 
 ## 三、玩法说明
 
@@ -281,24 +281,30 @@ c. 手头没有地图、只想先试一局：生成一张空白平坦模板：
 | 影丸 | `kage_gun`、`kage_lens` |
 | 吉野 | `yoshino_reed`、`yoshino_thread` |
 
-战斗层的公共机制（三种玩法通用）：
+战斗层的公共机制（四种玩法通用）：
 
 - 四种状态机制：易伤标记（被标者受到的所有伤害提高）、破甲（独立乘区、硬上限 30%）、
   兑现（带 `echo-bonus` 的技能打在带状态的目标上放大伤害，动作栏报「兑现！」）、
   场地与召唤（领域类周期结算；召唤物带归属，队友打不到、击杀不计分）；
 - 组合技：每个角色各有 1 组连携（如月读「镇魂铃挂易伤 → 陨星锤兑现」），全部由四种机制自然涌现，不需要额外配置；
 - 打击反馈：动作栏伤害数字汇总、冷却就绪提示音、连击可视化、重技能 title 演出；
+- 头顶名牌：名字前显示所选角色（`[角色名]`），整条名牌按当前所属队伍染成红 / 蓝，
+  远处一眼分清敌我；分队、换队、换角色与复活后自动刷新；
+- 敌方目标罗盘：对局中在快捷栏**倒数第二格**发一枚指南针（第 9 格留给功能壳），
+  指针与 Lore 每秒指向最近的敌方基地；拆包战优先指包点、战国指敌方天守阁；PVE 不发放；
 - **载体护栏**：手持插件武器时不挖方块、不放置、不丢弃、不换副手；绑定武器不能入箱、不会被他人捡走。
 
-### 3.3 三种对局模式
+### 3.3 四种对局模式
 
 | 模式 | 切换 | 节奏 |
 | --- | --- | --- |
-| 3v3 积分赛（PVP） | 默认 | 先到 `match.score-to-win` 或时限到时比分高者胜 |
+| 3v3 积分赛（PVP） | 默认 | 先到 `match.score-to-win` 或时限到时比分高者胜（**不含包点相位**） |
 | PVE 月人入侵 | `/taketori match mode pve [房间id]` | 全员同一队守据点，撑过五大波次 |
+| 拆包战（bomb） | `/taketori match mode bomb [房间id]` | 红蓝对抗 + CS 式包点：自由时段 → 拆弹窗口 → 抢基地；场地必须划包点 |
 | 战国 3v3（三局两胜） | `/taketori match mode sengoku_3v3 [房间id]` | 每小局攻陷敌方天守阁者胜，先赢两小局赢整场 |
 
 据点保卫、大波次与包点攻防的判定细节见[PVP / PVE 模式](docs/pvp-pve.md)。
+包点现在是独立模式：场地划了包点也不会让纯 PVP 变味，要打拆包就切到 `bomb`。
 
 3v3 积分赛
 
@@ -307,11 +313,11 @@ c. 手头没有地图、只想先试一局：生成一张空白平坦模板：
 | 击杀月人 / 玩家 / 拆基地 | `+3` / `+10` / `+50` |
 | 击杀回血 | 击杀敌方玩家回复 3 颗心（`combat.kill-heal`，满血不回） |
 | 基地 | 双方各 3 个（数量可配），开局 60 秒保护期内不能占点 |
-| 占点 | 站进对方基地区域持续 10 秒；区域内没敌人时进度按 `base.decay-per-second` 衰减 |
+| 占点 | 站进对方基地区域持续 20 秒；区域内没敌人时进度按 `base.decay-per-second` 衰减 |
 | 月人 | 每 9 秒一批（铁甲僵尸 / 骷髅按权重随机），场上最多 15 个；多刷新区之间按区轮转均等分布 |
 | 精英月人 | 每 5 波一批（钻甲 + 药水 buff），只在 mixed 标签刷新区出现 |
 | 复活 | 死亡 5 秒后回己方出生点，死亡不掉落物品 |
-| 基地标记 | 双方基地用队伍颜色粒子持续标出（远处看柱、近处看框），被拆后标记立即消失 |
+| 基地标记 | 双方基地用队伍颜色粒子持续标出（12 格光柱 + 四角立柱 + 顶部十字，远处看柱、近处看框），被拆后标记立即消失 |
 
 PVE 月人入侵：所有人同一队、不占点、玩家之间默认无伤害。
 
@@ -353,9 +359,10 @@ PVE 月人入侵：所有人同一队、不占点、玩家之间默认无伤害�
 - 管理员站到位置上执行 `/taketori shop setnpc <red|blue>` 即可把该队商人挪过来（坐标写回 config.yml）；
 - 不在进行中的对局里也能打开界面，但买不了（会提示「你不在进行中的对局中」）。
 
-### 3.5 炸弹与加时赛
+### 3.5 拆包战（bomb）与加时赛
 
-包点从「连点拉杆」改成 CS 式读条拆弹，时序分三个阶段：
+包点是**独立模式**（`match.mode: bomb` 或 `/taketori match mode bomb`），纯 PVP 不再接管它。
+一局分三个阶段：
 
 | 阶段 | 时长（默认） | 发生什么 |
 | --- | --- | --- |
@@ -366,7 +373,7 @@ PVE 月人入侵：所有人同一队、不占点、玩家之间默认无伤害�
 - 空手 10 秒（`defuse-seconds-bare`），背包里带着拆弹钳 6 秒（`defuse-seconds-clipper`）；
 - 离开包点、死亡、掉线、换队都会中断，`bomb.reset-seconds`（7 秒）内没人接手则进度归零（只提醒红队）；
 - 拆开 → 红队直接获胜；110 秒没拆完 → 蓝队 +200（`blue-keep-score`）、红队 +50（`red-consolation-score`）；
-- 场地没设包点（`/taketori arena setbomb`）就不进这套相位，仍按原来的「基地开放延迟 + 分数」判胜负；
+- 拆包战要求场地先划包点（`/taketori arena setbomb`），没划会在开局时被拦下；PVP / PVE / 战国三个模式一律不进入这套相位，基地按 `base.capture-delay-seconds` 开放；
 - 记分板显示 `包点: 未激活 / 拆除中 Ns / 蓝队守住`。
 
 时间到双方都没到目标分时进入加时赛：
@@ -414,7 +421,7 @@ PVE 月人入侵：所有人同一队、不占点、玩家之间默认无伤害�
 /taketori keys                     按键诊断：回放最近收到的原始输入事件
 /taketori lobby join|leave|spectate 快速加入房间 / 退房回大厅 / 旁观
 /taketori leave                    退出观战、离开等待房间（对局中参赛者不能中途退出）
-/taketori room create [模板id]     创建房间（降临月宫，异步复制模板世界）
+/taketori room create [模板id] [pvp|pve|bomb|sengoku_3v3]  创建房间（可指定模式）
 /taketori room delete|list         删除自己的等待房 / 房间列表
 /taketori surrender                发起/确认本队投降（对局中）
 /taketori shop [clipper|mine]      打开队伍商店 / 快捷购买拆弹钳（红队）/ 地雷（蓝队）
@@ -451,7 +458,7 @@ PVE 月人入侵：所有人同一队、不占点、玩家之间默认无伤害�
 /taketori sengoku breaker [red|blue]       查看击破器位置与自己当前的读条进度
 /taketori sengoku jumppad [red|blue]       查看跳跃台状态与位置
 /taketori sengoku score                    查看比分、剩余时间、各人能量
-/taketori sengoku mode [pvp|pve|sengoku_3v3]  查看 / 切换全局默认模式（写回 config.yml）
+/taketori sengoku mode [pvp|pve|bomb|sengoku_3v3]  查看 / 切换全局默认模式（写回 config.yml）
 /taketori sengoku menu                     打开图形化面板（上面这些的按钮版）
 ```
 
@@ -519,7 +526,7 @@ PVE 月人入侵：所有人同一队、不占点、玩家之间默认无伤害�
 /taketori match force [房间id]                   人数不够也开（只按该房等待区的人分队）
 /taketori match stop [房间id] [原因]             结束指定房间（不影响其他并发房间）；等待/倒计时阶段则直接解散房间，房内玩家回大厅
 /taketori match status                           逐房间列出阶段 / 比分 / 剩余 / 基地 / 场上月人
-/taketori match mode <pvp|pve|sengoku_3v3> [房间id]  切换指定房间模式（仅等待中可切，不写全局配置）
+/taketori match mode <pvp|pve|bomb|sengoku_3v3> [房间id]  切换指定房间模式（仅等待中可切，不写全局配置）
 /taketori pve                                    查看 PVE 设置（难度 / 波次 / 据点耐久）
 /taketori pve difficulty <easy|normal|hard>      切换 PVE 难度（下一局生效）
 /taketori team <玩家> <red|blue|none>            手动分队（作用于目标玩家所在房间）
@@ -557,7 +564,7 @@ PVE 月人入侵：所有人同一队、不占点、玩家之间默认无伤害�
 | `loadout` | `armor-enabled` / `armor-material` / `armor-protection` | true / IRON / 2（保护 II） |
 | `minion` | `health` / `iron-armor` / `interval-seconds` / `per-spawn` / `max-alive` / `types` / `elite` / `normal.*` / `mixed.*` | 40 / true / 9 / 3 / 15 / 僵尸骷髅权重 / 每 5 波 / normal 与 mixed 两类刷新区各自的独立循环（enabled + interval-seconds，未配置回落全局间隔） |
 | `pve` | `difficulty` / `big-waves` / `elite-scaling` / `outpost` | normal / 5 波·8 精英·60 秒 / 每多 1 人 +1 级 / 三档数值 |
-| `base` | `count-per-team` / `capture-seconds` / `capture-delay-seconds` / `decay-per-second` / `multi-player-bonus` | 3（或 auto）/ 10 / 60 / 0.5 / true |
+| `base` | `count-per-team` / `capture-seconds` / `capture-delay-seconds` / `decay-per-second` / `multi-player-bonus` | 3（或 auto）/ 20 / 60 / 0.5 / false |
 | `lobby` | `teleport-on-join` / `takeover-worlds` / `protect` / `return-after-match` / `return-to-entry` | true / `[]`（仅大厅世界）/ true / true / true |
 | `bomb` | `activation-delay-seconds` / `defuse-time-limit-seconds` / `defuse-seconds-bare` / `defuse-seconds-clipper` / `reset-seconds` / `blue-keep-score` / `red-consolation-score` | 40 / 110 / 10 / 6 / 7 / 200 / 50（没有包点的场地不生效） |
 | `shop` | `npc.enabled` / `npc.red.*` / `npc.blue.*` / `defuse-clipper.cost` / `defuse-clipper.max-per-player` / `land-mine.cost` / `land-mine.max-per-team` / `land-mine.kill-radius` / `land-mine.trigger-radius` | true / 商人名与坐标 / 30 / 2 / 40 / 2 / 5 / 3 |
@@ -570,6 +577,42 @@ PVE 月人入侵：所有人同一队、不占点、玩家之间默认无伤害�
 | `setup-wand` | `enabled` / `material` / `loot-material` / `give-on-join` | true / NETHERITE_HOE / STRUCTURE_VOID / false |
 | `loot` | `enabled` / `interval-seconds` / `max-drops` / `items` | true / 30 / 6 / 道具池 |
 | `tags` | `default` / `vip` / `staff` 的权重 | 0 / 10 / 100 |
+
+### 数据存储（yaml / sqlite / mysql）
+
+玩家档案（角色绑定 + 隐性标签）与跨局战绩走同一套接口 `DataStore`，后端在 `config.yml` 的 `storage` 段切换：
+
+| 后端 | 落地位置 | 适用场景 |
+| --- | --- | --- |
+| `yaml`（默认） | `data/players.yml` + `data/stats.yml` | 单机服，零依赖 |
+| `sqlite` | `data/kassen.db`（单文件） | 单机服，想要更好的读写与外部查询 |
+| `mysql` | MySQL / MariaDB 库，表 `{table-prefix}players` / `{table-prefix}stats` | 群组服、多服共库 |
+
+```yaml
+storage:
+  type: mysql          # yaml | sqlite | mysql
+  table-prefix: kassen_
+  sqlite:
+    file: data/kassen.db
+  mysql:
+    host: 127.0.0.1
+    port: 3306
+    database: tsukikage
+    username: root
+    password: ''
+    use-ssl: false
+    timeout-seconds: 5
+```
+
+- **驱动按需加载**：不写进 `plugin.yml` 的 `libraries`（那样下载失败会连带整个插件加载失败）。
+  Paper 26.1 自带 `sqlite-jdbc` 与 `mysql-connector-j`，通常开箱即用；如果用的是精简构建或换平台，
+  把 `sqlite-jdbc-*.jar` / `mysql-connector-j-*.jar` 放进 `plugins/TsukikageKassen/drivers/` 再重启，
+  插件会从那里加载（`DriverShim` 方式注册给 `DriverManager`）。用 YAML 则完全不需要驱动。
+- **失败自动回退**：驱动缺失、库连不上、账号没权限时，控制台记一条 SEVERE 并回退 YAML，插件照常运行；
+  启动日志会打印「数据后端：…」，一眼能看出实际用的是哪个。
+- **切换只在启用时生效**：`/taketori reload` 不会热切数据库，换后端请重启服务器。
+- 两套 SQL 表结构一致：`players(uuid, character_id, tag_id)`、`stats(player_name, stat_key, stat_value)`；
+  统计键名沿用 `stats.yml` 的字段名（`total-score` / `kills` / …），所以 YAML 与 SQL 之间可以手工搬迁。
 
 ### 数值文件（插件不会覆盖）
 

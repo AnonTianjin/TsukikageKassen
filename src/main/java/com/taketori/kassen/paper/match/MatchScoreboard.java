@@ -1,9 +1,12 @@
 package com.taketori.kassen.paper.match;
 
 import com.taketori.kassen.TaketoriPlugin;
+import com.taketori.kassen.core.character.CharacterDef;
 import com.taketori.kassen.core.match.PveSettings;
 import com.taketori.kassen.core.match.TeamId;
 import com.taketori.kassen.paper.match.room.GameRoom;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
@@ -11,9 +14,12 @@ import org.bukkit.scoreboard.Criteria;
 import org.bukkit.scoreboard.DisplaySlot;
 import org.bukkit.scoreboard.Objective;
 import org.bukkit.scoreboard.Scoreboard;
+import org.bukkit.scoreboard.Team;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -34,11 +40,18 @@ public final class MatchScoreboard {
      * 数值相对大小一变，行序就上下跳动，玩家读不到固定位置。
      */
 
+    /**
+     * 头顶名牌的 Team 名前缀。Team 名有 16 字符上限，所以用「前缀 + 序号」这种短名。
+     */
+    private static final String NAME_TAG_TEAM = "kt";
+
     /** 所属房间：比分/阶段/波次/据点全部按房间取。 */
     private final GameRoom room;
     private final TaketoriPlugin plugin;
     private final Map<UUID, Scoreboard> boards = new HashMap<>();
     private final Map<UUID, Objective> objectives = new HashMap<>();
+    /** 上一次刷新名牌时的成员指纹；成员 / 队伍 / 角色 / 观看者都没变就跳过重发。 */
+    private String nameTagSignature;
 
     public MatchScoreboard(GameRoom room) {
         this.room = room;
@@ -60,6 +73,7 @@ public final class MatchScoreboard {
         }
         player.setScoreboard(board);
         update(player);
+        refreshNameTags();
     }
 
     public void hide(Player player) {
@@ -71,6 +85,7 @@ public final class MatchScoreboard {
         if (player.isOnline()) {
             player.setScoreboard(Bukkit.getScoreboardManager().getMainScoreboard());
         }
+        refreshNameTags();
     }
 
     /** 刷新所有在线玩家的记分板。 */
@@ -84,6 +99,7 @@ public final class MatchScoreboard {
             }
             update(player);
         }
+        refreshNameTags();
     }
 
     public void clearAll() {
@@ -95,6 +111,112 @@ public final class MatchScoreboard {
         }
         boards.clear();
         objectives.clear();
+        nameTagSignature = null;
+    }
+
+    // ---------------------------------------------------------------- 头顶名牌
+
+    /**
+     * 刷新头顶名牌：队伍成员按<b>当前所属队伍颜色</b>高亮，并在名字前显示<b>所选角色</b>。
+     *
+     * <p>名牌装饰由「观看者客户端上那块记分板」里的 Team 决定，所以每个在场玩家
+     * 自己的记分板都要各自挂一遍；而 Team 的颜色与前缀是整队共用的、不能逐人设置，
+     * 因此按「队伍 + 角色」的组合各建一个 Team（同队同角色共用，最多 2×角色数+2 个）。</p>
+     *
+     * <p>成员 / 队伍 / 角色 / 观看者都没变化时用指纹短路，不重发数据包。</p>
+     */
+    public void refreshNameTags() {
+        List<Player> viewers = new ArrayList<>();
+        for (UUID uuid : List.copyOf(boards.keySet())) {
+            Player player = Bukkit.getPlayer(uuid);
+            if (player != null && player.isOnline()) {
+                viewers.add(player);
+            }
+        }
+        if (viewers.isEmpty()) {
+            nameTagSignature = null;
+            return;
+        }
+        List<Player> members = new ArrayList<>();
+        for (UUID uuid : room.teamsView().keySet()) {
+            Player player = Bukkit.getPlayer(uuid);
+            if (player != null && player.isOnline()) {
+                members.add(player);
+            }
+        }
+        // 排序后再算指纹：HashMap 的迭代顺序不保证，排序可以避免无意义的重建
+        viewers.sort(Comparator.comparing(Player::getName));
+        members.sort(Comparator.comparing(Player::getName));
+        String signature = nameTagSignatureOf(viewers, members);
+        if (signature.equals(nameTagSignature)) {
+            return;
+        }
+        nameTagSignature = signature;
+        for (Player viewer : viewers) {
+            applyNameTags(viewer, members);
+        }
+    }
+
+    private String nameTagSignatureOf(List<Player> viewers, List<Player> members) {
+        StringBuilder sb = new StringBuilder();
+        for (Player viewer : viewers) {
+            sb.append(viewer.getUniqueId()).append(',');
+        }
+        sb.append('#');
+        for (Player member : members) {
+            TeamId team = room.teamOf(member.getUniqueId());
+            sb.append(member.getUniqueId()).append(':')
+                    .append(team == null ? "-" : team.key()).append(':')
+                    .append(room.characterIdOf(member.getUniqueId())).append(',');
+        }
+        return sb.toString();
+    }
+
+    /** 把某一观看者的记分板上的名牌 Team 整片重建。 */
+    private void applyNameTags(Player viewer, List<Player> members) {
+        Scoreboard board = boards.get(viewer.getUniqueId());
+        if (board == null) {
+            return;
+        }
+        // 成员会换队 / 换角色，整片摘掉重建最省心（每次刷新只发一次 Team 包）
+        for (Team team : new ArrayList<>(board.getTeams())) {
+            if (team.getName().startsWith(NAME_TAG_TEAM)) {
+                team.unregister();
+            }
+        }
+        Map<String, Team> byKey = new LinkedHashMap<>();
+        int index = 0;
+        for (Player member : members) {
+            TeamId teamId = room.teamOf(member.getUniqueId());
+            if (teamId == null) {
+                continue;   // 旁观 / 已离队：名牌保持原版
+            }
+            String characterId = room.characterIdOf(member.getUniqueId());
+            String key = teamId.key() + ':' + (characterId == null ? "" : characterId);
+            Team tag = byKey.get(key);
+            if (tag == null) {
+                tag = registerNameTagTeam(board, NAME_TAG_TEAM + index++, teamId, characterId);
+                byKey.put(key, tag);
+            }
+            tag.addEntry(member.getName());
+        }
+    }
+
+    private Team registerNameTagTeam(Scoreboard board, String name, TeamId teamId, String characterId) {
+        NamedTextColor color = teamId == TeamId.RED ? NamedTextColor.RED : NamedTextColor.BLUE;
+        Team team = board.registerNewTeam(name);
+        // 队色直接给名牌上色；角色名放进前缀，名牌就变成「[角色] 玩家名」
+        team.color(color);
+        team.setOption(Team.Option.NAME_TAG_VISIBILITY, Team.OptionStatus.ALWAYS);
+        CharacterDef character = characterId == null ? null : plugin.config().characters().get(characterId);
+        if (character != null && character.display() != null && !character.display().isBlank()) {
+            // display 是 MiniMessage（含渐变 / 颜色标签），必须解析后再拼，
+            // 直接当纯文本会把 <gradient:…> 原样显示在名牌上
+            team.prefix(Component.text("[", color)
+                    .append(MINI.deserialize(character.display()))
+                    .append(Component.text("] ", color)));
+        }
+        return team;
     }
 
     private void update(Player player) {
@@ -142,7 +264,9 @@ public final class MatchScoreboard {
             lines.add("波次: " + room.minions().wave());
             lines.add("剩余: " + minutes + " 分");
         } else {
-            objective.displayName(MINI.deserialize("<gold><bold>月影合战 3v3</bold>"));
+            objective.displayName(MINI.deserialize(match.isBombMode()
+                    ? "<gold><bold>拆包战 3v3</bold>"
+                    : "<gold><bold>月影合战 3v3</bold>"));
             // 攻防目标分不同，所以两行都带上各自的目标：只写「红队: 120」看不出还差多少
             lines.add("红队: " + match.teamScore(TeamId.RED) + "/" + match.scoreTargetOf(TeamId.RED));
             lines.add("蓝队: " + match.teamScore(TeamId.BLUE) + "/" + match.scoreTargetOf(TeamId.BLUE));

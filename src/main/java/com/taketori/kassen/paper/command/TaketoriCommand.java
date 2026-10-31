@@ -143,6 +143,15 @@ public final class TaketoriCommand implements CommandExecutor, TabCompleter {
     }
 
     private void handleCharacter(CommandSender sender, String[] args) {
+        // 玩家自助：/taketori character <角色id|none>（README 里一直是玩家指令，但此前只实现了管理员形态，
+        // 玩家敲这条只会拿到「用法：/taketori character <player> <characterId>」）
+        if (args.length == 2 && sender instanceof Player self) {
+            if (!require(sender, "taketori.play")) {
+                return;
+            }
+            applyCharacter(sender, self, args[1]);
+            return;
+        }
         if (!require(sender, "taketori.admin")) {
             return;
         }
@@ -155,7 +164,11 @@ public final class TaketoriCommand implements CommandExecutor, TabCompleter {
             sender.sendMessage(plugin.config().messages().prefixed("command.player-not-found", "name", args[1]));
             return;
         }
-        String characterId = args[2];
+        applyCharacter(sender, target, args[2]);
+    }
+
+    /** 绑定 / 解除角色：玩家自助与管理员指定共用同一套同队冲突裁决与提示。 */
+    private void applyCharacter(CommandSender sender, Player target, String characterId) {
         if ("none".equalsIgnoreCase(characterId)) {
             plugin.bindCharacter(target, null);
             sender.sendMessage(plugin.config().messages().prefixed("command.character-cleared", "player", target.getName()));

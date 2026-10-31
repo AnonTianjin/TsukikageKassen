@@ -7,6 +7,7 @@ import com.taketori.kassen.core.skill.SkillSlot;
 import com.taketori.kassen.core.skill.ThirdSlotTrigger;
 import com.taketori.kassen.core.weapon.WeaponDef;
 import com.taketori.kassen.paper.item.ItemFactory;
+import org.bukkit.block.Block;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -94,6 +95,14 @@ public final class InputListener implements Listener {
 
         if (identity == null) {
             debug(player, action, hand, null, "主手不是插件武器 → 忽略（若你确定拿的是插件武器，说明 PDC 读不到，请用 /taketori doctor）");
+            return;
+        }
+
+        // 战国铜钟：右键敲钟是玩法动作，不能被右键技能吃掉。
+        // 手持插件武器时下面的分支会派发技能并 setCancelled(true)，敲钟监听就再也收不到事件——
+        // 而玩家在战国模式里几乎总是拿着武器，那会导致箭楼永久无法占领。
+        if (action == Action.RIGHT_CLICK_BLOCK && isSengokuBell(player, event.getClickedBlock())) {
+            debug(player, action, hand, identity, "目标是战国铜钟 → 放行给敲钟逻辑");
             return;
         }
 
@@ -232,6 +241,15 @@ public final class InputListener implements Listener {
             return true;
         }
         return false;
+    }
+
+    /** 这次右键点的是不是本房间的战国铜钟；不是就按原逻辑派发技能。 */
+    private boolean isSengokuBell(Player player, Block block) {
+        if (block == null || plugin.rooms() == null) {
+            return false;
+        }
+        var room = plugin.rooms().roomOf(player);
+        return room != null && room.sengokuBellIndexAt(block) > 0;
     }
 
     /** 同一次右键只派发一次（实体交互与"使用物品"可能先后到达）。 */

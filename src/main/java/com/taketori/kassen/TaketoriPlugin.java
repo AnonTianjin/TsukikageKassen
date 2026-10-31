@@ -6,8 +6,8 @@ import com.taketori.kassen.core.character.TagManager;
 import com.taketori.kassen.core.cooldown.CooldownManager;
 import com.taketori.kassen.core.skill.SkillSlot;
 import com.taketori.kassen.core.worlds.WorldScope;
-import com.taketori.kassen.data.PlayerDataStore;
-import com.taketori.kassen.data.YamlPlayerDataStore;
+import com.taketori.kassen.data.DataStore;
+import com.taketori.kassen.data.DataStores;
 import com.taketori.kassen.paper.command.AdminMenu;
 import com.taketori.kassen.paper.command.TagMenu;
 import com.taketori.kassen.paper.effect.Fx;
@@ -107,7 +107,7 @@ public final class TaketoriPlugin extends JavaPlugin {
     private CooldownManager cooldowns;
     private SkillManager skills;
     private ProjectileSkill projectileSkill;
-    private PlayerDataStore dataStore;
+    private DataStore dataStore;
 
     // ---- 玩法层（3v3 积分赛，多房间）----
     private ArenaManager arena;
@@ -186,7 +186,8 @@ public final class TaketoriPlugin extends JavaPlugin {
         registerSkills();
         skills = new SkillManager(this, registry, cooldowns, items, fx);
 
-        dataStore = new YamlPlayerDataStore(this);
+        // 数据后端由 storage.type 决定（yaml / sqlite / mysql），失败自动回退 YAML
+        dataStore = DataStores.create(this);
         dataStore.loadAll();
         clearCharacterBindings();
         restoreOnlinePlayers();
@@ -299,6 +300,7 @@ public final class TaketoriPlugin extends JavaPlugin {
         }
         if (dataStore != null) {
             dataStore.saveAll();
+            dataStore.close();
         }
         if (cooldowns != null) {
             cooldowns.clearAll();
@@ -1234,7 +1236,7 @@ public final class TaketoriPlugin extends JavaPlugin {
         return projectileSkill;
     }
 
-    public PlayerDataStore dataStore() {
+    public DataStore dataStore() {
         return dataStore;
     }
 }

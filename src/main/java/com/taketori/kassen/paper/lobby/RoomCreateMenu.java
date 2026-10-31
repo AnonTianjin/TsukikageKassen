@@ -46,6 +46,7 @@ public final class RoomCreateMenu implements Listener {
     private static final int SLOT_MODE_PVP = 37;
     private static final int SLOT_MODE_PVE = 38;
     private static final int SLOT_MODE_SENGOKU = 39;
+    private static final int SLOT_MODE_BOMB = 36;
 
     /** 固定按钮。 */
     private static final int SLOT_CREATE = 49;
@@ -103,7 +104,9 @@ public final class RoomCreateMenu implements Listener {
                 continue;
             }
             File worldDir = new File(moonmapsDir, def.id());
-            if (worldDir.isDirectory() && new File(worldDir, "level.dat").isFile()) {
+            // 与 arena setup / moonmap load 同口径：26.1 的维度模板没有 level.dat，
+            // 只认 level.dat 会让「就绪·开放」的场地在这里凭空消失、建房 GUI 一个模板都列不出来。
+            if (com.taketori.kassen.paper.match.room.RoomManager.isWorldFolder(worldDir)) {
                 ready.add(def);
             }
         }
@@ -156,6 +159,10 @@ public final class RoomCreateMenu implements Listener {
                 "<gold>战国 3v3 <dark_gray>· <white>三局两胜",
                 "<gray>清守卫 → 敲钟 → 占箭楼 → 击破器攻陷天守阁",
                 "<gray>先赢两小局赢整场"));
+        inventory.setItem(SLOT_MODE_BOMB, modeIcon(SengokuMode.BOMB, session.selectedMode,
+                "<red>拆包战 <dark_gray>· <white>CS 式包点",
+                "<gray>红蓝对抗 + 包点三相位：自由 → 拆弹 → 抢基地",
+                "<gray>场地必须划包点，否则开局会被拦下"));
 
         // ---- 信息行（第 4 行：28-34） ----
         String info = session.selectedTemplate >= 0
@@ -219,6 +226,7 @@ public final class RoomCreateMenu implements Listener {
             case PVP -> selected ? Material.RED_CONCRETE : Material.RED_STAINED_GLASS;
             case PVE -> selected ? Material.BLUE_CONCRETE : Material.BLUE_STAINED_GLASS;
             case SENGOKU_3V3 -> selected ? Material.CROSSBOW : Material.BOW;
+            case BOMB -> selected ? Material.TNT : Material.GUNPOWDER;
         };
         List<Component> lore = new ArrayList<>();
         for (String line : description) {
@@ -259,6 +267,7 @@ public final class RoomCreateMenu implements Listener {
             case PVP -> "PVP 3v3 积分赛";
             case PVE -> "PVE 月人入侵";
             case SENGOKU_3V3 -> "战国 3v3 三局两胜";
+            case BOMB -> "拆包战（CS 式包点）";
         };
     }
 
@@ -307,6 +316,10 @@ public final class RoomCreateMenu implements Listener {
             }
             case SLOT_MODE_SENGOKU -> {
                 session.selectedMode = SengokuMode.SENGOKU_3V3;
+                render(session);
+            }
+            case SLOT_MODE_BOMB -> {
+                session.selectedMode = SengokuMode.BOMB;
                 render(session);
             }
             case SLOT_CREATE -> {

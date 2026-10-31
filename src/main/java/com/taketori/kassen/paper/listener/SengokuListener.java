@@ -121,7 +121,7 @@ public final class SengokuListener implements Listener {
      * <p>取消原版交互是因为原版的钟会响一声并产生"钟鸣"效果，与这里的语义冲突——
      * 由插件统一播报"谁敲响了哪座箭楼"。</p>
      */
-    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = false)
     public void onBellInteract(PlayerInteractEvent event) {
         if (event.getAction() != Action.RIGHT_CLICK_BLOCK) {
             return;
@@ -152,34 +152,11 @@ public final class SengokuListener implements Listener {
     /**
      * 这个方块是不是某座箭楼的铜钟；不是返回 -1。
      *
-     * <p>匹配用「距离 ≤ 1.5 格」而不是三轴精确相等：写入端存的是方块坐标，
-     * 但铜钟可能由多格组成（钟+底座），也可能被管理员贴着边划——
-     * 精确相等只要差一格就整个占领主线断掉，而这条链路是模式的核心。</p>
+     * <p>匹配逻辑收在 {@link GameRoom#sengokuBellIndexAt(Block)}：输入层要先用同一口径判断
+     * 「这次右键该不该让给敲钟」，所以两边必须共用一份实现，不能各写一遍。</p>
      */
     private int towerIndexAtBell(GameRoom room, Block block) {
-        var arena = room.arena();
-        if (arena == null) {
-            return -1;
-        }
-        var map = arena.sengoku();
-        String wanted = plugin.config().towerRules().bellMaterial();
-        if (wanted != null && !wanted.isBlank()
-                && !block.getType().name().equalsIgnoreCase(wanted.trim())) {
-            return -1;
-        }
-        Location clicked = block.getLocation();
-        int count = plugin.config().towerRules().safeCount();
-        for (int index = 1; index <= count; index++) {
-            Location bell = map.bell(index) == null ? null : map.bell(index).toBukkitLocation();
-            if (bell == null || bell.getWorld() == null
-                    || !bell.getWorld().equals(clicked.getWorld())) {
-                continue;
-            }
-            if (bell.distance(clicked) <= 1.5D) {
-                return index;
-            }
-        }
-        return -1;
+        return room.sengokuBellIndexAt(block);
     }
 
     // ── 大将击破器的三条护栏：不可被抢 / 不可丢弃 / 不可破坏 ──────────────

@@ -56,7 +56,7 @@
 
 ## 二、炸弹相位
 
-包点用 `/taketori arena setbomb` 站在方块上划定，坐标存 `arenas.yml` 的 `bomb` 段，只有一格；
+包点用 `/taketori arena setbomb` 站在方块上划定，坐标存 `arenas.yml` 的 `bomb` 段，只有一格；**包点属于独立模式「拆包战」（`bomb`）**——房间不是这个模式时，划了包点也不会进入下面这套相位；
 `/taketori arena delbomb` 取消。
 
 | 相位 | 起点 | 结束 | 发生什么 |

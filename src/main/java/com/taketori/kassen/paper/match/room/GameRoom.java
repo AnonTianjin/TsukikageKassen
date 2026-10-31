@@ -9,6 +9,7 @@ import com.taketori.kassen.core.match.sengoku.SengokuMode;
 import com.taketori.kassen.core.worlds.WorldScope;
 import com.taketori.kassen.paper.match.ArenaDef;
 import com.taketori.kassen.paper.match.BaseMarker;
+import com.taketori.kassen.paper.match.EnemyBaseCompass;
 import com.taketori.kassen.paper.match.BaseCaptureManager;
 import com.taketori.kassen.paper.match.BombObjective;
 import com.taketori.kassen.paper.match.CuboidRegion;
@@ -109,6 +110,14 @@ public final class GameRoom {
      * 房间瞬间变异（PVP 房突然开始跑战国逻辑），是最难查的一类事故。</p>
      */
     private boolean sengoku;
+    /**
+     * 本房间是否「拆包战」模式：红蓝对抗 + CS 式包点三相位。
+     *
+     * <p>与 {@code pve} / {@code sengoku} 同一口径（创建时快照，此后只受 {@link #setMode(String)} 影响）。
+     * 拆包战与 PVP 的差别只有一条：<b>强制启用包点</b>，而且场地没划包点就不许开局——
+     * 否则这个模式的核心主线直接不存在，打起来和 PVP 没有区别。</p>
+     */
+    private boolean bombMode;
     private MatchRules rules = MatchRules.defaults();
     /**
      * 防守方（蓝）目标分：与进攻方分开算。
@@ -119,14 +128,14 @@ public final class GameRoom {
     private int blueScoreToWin = 600;
     /** 进攻方（红）得分折算系数（0.6667 = 击杀/占点所得分打七折）。 */
     private double attackerMultiplier = 0.6667D;
-    /** 本局的包点；场地没设包点时为 null（这局照旧只按分数判胜负）。 */
+    /** 本局的包点；只有「拆包战」模式才会创建（其他模式恒为 null，基地开放走保护期计时）。 */
     private BombObjective bomb;
     /**
      * 包点相位：{@code FREE_TIME}（还没激活）→ {@code DEFUSE}（拆弹窗口）→ {@code BASE_FIGHT}（拆弹超时后的抢分阶段）。
      *
-     * <p>只有「纯 PVP + 场地设了包点」才会离开 {@code FREE_TIME}。没包点、PVE、战国三种情况
-     * 一律停在 {@code FREE_TIME}，此时基地开放仍按 {@code base.capture-delay-seconds} 的计时口径走，
-     * 与旧行为完全一致。</p>
+     * <p>只有「拆包战」模式才会离开 {@code FREE_TIME}。PVP / PVE / 战国三种模式一律停在
+     * {@code FREE_TIME}，此时基地开放仍按 {@code base.capture-delay-seconds} 的计时口径走，
+     * 与包点独立成模式之前的纯积分赛行为一致。</p>
      */
     private BombPhase bombPhase = BombPhase.FREE_TIME;
     /** 包点激活时刻（0 = 还没激活）；FREE_TIME 的倒计时以它为准。 */
@@ -188,6 +197,8 @@ public final class GameRoom {
     private final BarrierBuilder barrier = new BarrierBuilder(this);
     /** 双方基地的队伍颜色粒子标记（仅 PVP 对局启用）。 */
     private final BaseMarker baseMarker = new BaseMarker(this);
+    /** 快捷栏倒数第二格的敌方目标罗盘（PVE 以外都发）。 */
+    private final EnemyBaseCompass compass = new EnemyBaseCompass(this);
 
     // ---- 进房封存（BedWars2020 PlayerGoods 式全量快照）：自带背包/状态封存，结算或退房返还 ----
     private final Map<UUID, InventorySnapshot> backups = new HashMap<>();
@@ -281,17 +292,11 @@ public final class GameRoom {
         this.templateId = templateId == null ? arena.id() : templateId;
         this.creatorId = creatorId;
         this.createdAt = System.currentTimeMillis();
-        if (mode != null) {
-            this.pve = mode == SengokuMode.PVE;
-            this.sengoku = mode.isSengoku();
-        } else {
-            // 未显式指定模式：沿用全局配置（兼容旧入口）
-            this.pve = "pve".equalsIgnoreCase(plugin.getConfig().getString("match.mode", "pvp"));
-            this.sengoku = SengokuMode
-                    .parse(plugin.getConfig().getString("match.mode", "pvp"),
-                            SengokuMode.PVP)
-                    .isSengoku();
-        }
+        SengokuMode resolved = mode != null ? mode
+                : SengokuMode.parse(plugin.getConfig().getString("match.mode", "pvp"), SengokuMode.PVP);
+        this.pve = resolved == SengokuMode.PVE;
+        this.sengoku = resolved.isSengoku();
+        this.bombMode = resolved.isBomb();
         this.minions = new MinionSpawner(this);
         this.baseCapture = new BaseCaptureManager(this);
         this.outpost = new OutpostManager(this);
@@ -384,6 +389,11 @@ public final class GameRoom {
         return sengoku;
     }
 
+    /** 本房间是否「拆包战」模式（红蓝对抗 + 强制包点相位）。 */
+    public boolean isBombMode() {
+        return bombMode;
+    }
+
     /** 战国模式的天守阁管理（懒加载）。 */
     public com.taketori.kassen.paper.match.sengoku.KeepManager keep() {
         if (sengokuKeep == null) {
@@ -414,6 +424,48 @@ public final class GameRoom {
             sengokuCapture = new com.taketori.kassen.paper.match.sengoku.TowerCaptureManager(this);
         }
         return sengokuCapture;
+    }
+
+    /**
+     * 这个方块是不是本房间某座箭楼的铜钟；是则返回箭楼序号，否则 -1。
+     *
+     * <p>判定口径与敲钟监听完全一致：材质取 {@code sengoku-towers.yml} 的
+     * {@code bell.material}，位置按「距离 ≤ 1.5 格」匹配（钟可能带底座，也可能被贴着边划）。
+     * 抽到这里是给输入层用——手持插件武器时右键会被派发成技能并取消事件，
+     * 敲钟监听就再也收不到，所以输入层必须先问一句「这次右键是不是在敲钟」。</p>
+     */
+    public int sengokuBellIndexAt(Block block) {
+        if (block == null || !isSengoku()) {
+            return -1;
+        }
+        com.taketori.kassen.paper.match.sengoku.SengokuMapDef map =
+                arena == null ? null : arena.sengoku();
+        if (map == null) {
+            return -1;
+        }
+        var towerRules = plugin.config().towerRules();
+        String wanted = towerRules.bellMaterial();
+        if (wanted != null && !wanted.isBlank()
+                && !block.getType().name().equalsIgnoreCase(wanted.trim())) {
+            return -1;
+        }
+        Location clicked = block.getLocation();
+        int count = towerRules.safeCount();
+        for (int index = 1; index <= count; index++) {
+            ArenaDef.Point point = map.bell(index);
+            if (point == null) {
+                continue;
+            }
+            Location bell = point.toBukkitLocation();
+            if (bell == null || bell.getWorld() == null
+                    || !bell.getWorld().equals(clicked.getWorld())) {
+                continue;
+            }
+            if (bell.distance(clicked) <= 1.5D) {
+                return index;
+            }
+        }
+        return -1;
     }
 
     /** 战国模式的大将击破器（懒加载）。 */
@@ -490,10 +542,10 @@ public final class GameRoom {
                 Math.max(1, cfg.getInt("minion.mixed.interval-seconds", baseInterval)),
                 arena.minionSpawnPerSpawn(Math.max(1, cfg.getInt("minion.per-spawn", 3))),
                 arena.minionSpawnMaxAlive(Math.max(1, cfg.getInt("minion.max-alive", 15))),
-                Math.max(0.1D, cfg.getDouble("base.capture-seconds", 10.0D)),
+                Math.max(0.1D, cfg.getDouble("base.capture-seconds", 20.0D)),
                 Math.max(0.0D, cfg.getDouble("base.capture-delay-seconds", 60.0D)),
                 Math.max(0.0D, cfg.getDouble("base.decay-per-second", 0.5D)),
-                cfg.getBoolean("base.multi-player-bonus", true),
+                cfg.getBoolean("base.multi-player-bonus", false),
                 cfg.getBoolean("match.keep-inventory", true),
                 Math.max(0.0D, cfg.getDouble("combat.kill-heal", 6.0D)),
                 Math.max(0.0D, cfg.getDouble("combat.minion-kill-heal", 0.0D)),
@@ -538,10 +590,10 @@ public final class GameRoom {
         if (phase != Phase.WAITING) {
             return "房间已经开始，不能切换模式。";
         }
-        this.pve = "pve".equalsIgnoreCase(mode);
-        this.sengoku = com.taketori.kassen.core.match.sengoku.SengokuMode
-                .parse(mode, com.taketori.kassen.core.match.sengoku.SengokuMode.PVP)
-                .isSengoku();
+        SengokuMode resolved = SengokuMode.parse(mode, SengokuMode.PVP);
+        this.pve = resolved == SengokuMode.PVE;
+        this.sengoku = resolved.isSengoku();
+        this.bombMode = resolved.isBomb();
         loadRules();
         return null;
     }
@@ -1304,6 +1356,10 @@ public final class GameRoom {
             }
         } else if (!arena.isReady()) {
             return "场地未就绪，还缺：" + arena.missingHint();
+        } else if (isBombMode() && arena.bomb() == null) {
+            // 拆包战的核心主线就是包点：没划包点开局只会打成「和 PVP 一样的积分赛」，
+            // 与其开局后再播一句「只按分数判胜负」，不如在开局前直接拦住。
+            return "拆包战需要场地先划包点（/taketori arena setbomb）。";
         }
         // 锁定名单：只取在线等待者；PVE 全红，PVP 沿用玩家在等待区手动选择的队伍
         List<Player> roster = waitingPlayers();
@@ -1660,25 +1716,23 @@ public final class GameRoom {
         clippersBought.clear();
         minesBought.clear();
         clearMines();
-        if (!isSengoku() && !isPve()) {
-            if (arena().bomb() == null) {
-                bomb = null;
-                broadcast("<yellow>本场地未设置包点（<white>/taketori arena setbomb</white>），"
-                        + "本局只按分数判胜负。");
+        // 包点只属于「拆包战」模式：PVE 只有一队（没人拆也没人守）、战国凭击破天守阁定胜负，
+        // 纯 PVP 现在也不再自动接管包点——要 CS 式相位就把房间切到拆包战。
+        if (isBombMode()) {
+            bomb = new BombObjective(plugin, this, plugin.config().bombResetSeconds());
+            int delay = plugin.config().bombActivationDelaySeconds();
+            if (delay <= 0) {
+                // 配置成 0 = 开局立刻激活，方便测试与「快节奏」服务器
+                activateBomb();
             } else {
-                bomb = new BombObjective(plugin, this, plugin.config().bombResetSeconds());
-                int delay = plugin.config().bombActivationDelaySeconds();
-                if (delay <= 0) {
-                    // 配置成 0 = 开局立刻激活，方便测试与「快节奏」服务器
-                    activateBomb();
-                } else {
-                    broadcast("<gold><bold>包点已布防！</bold> <gray>开局 <white>" + delay
-                            + "</white> 秒后包点激活；红队拆除（空手 <white>"
-                            + plugin.config().bombDefuseSecondsBare() + "</white> 秒 / 拆弹钳 <white>"
-                            + plugin.config().bombDefuseSecondsClipper() + "</white> 秒），限时 <white>"
-                            + plugin.config().bombDefuseTimeLimitSeconds() + "</white> 秒。");
-                }
+                broadcast("<gold><bold>包点已布防！</bold> <gray>开局 <white>" + delay
+                        + "</white> 秒后包点激活；红队拆除（空手 <white>"
+                        + plugin.config().bombDefuseSecondsBare() + "</white> 秒 / 拆弹钳 <white>"
+                        + plugin.config().bombDefuseSecondsClipper() + "</white> 秒），限时 <white>"
+                        + plugin.config().bombDefuseTimeLimitSeconds() + "</white> 秒。");
             }
+        } else {
+            bomb = null;
         }
 
         // 开局播报按模式分流：战国模式不看积分、也没有基地保护期，
@@ -1695,11 +1749,17 @@ public final class GameRoom {
         if (isPve()) {
             broadcast("<gold><bold>对局开始！</bold></gold> <gray>先到 <white>" + scoreTargetOf(TeamId.RED)
                     + "</white> 分，时限 <white>" + (rules().timeLimitSeconds() / 60) + "</white> 分钟。");
-        } else {
-            broadcast("<gold><bold>对局开始！</bold></gold> <gray>进攻方（<red>红</red>）到 <white>"
+        } else if (isBombMode()) {
+            broadcast("<gold><bold>拆包战开始！</bold></gold> <gray>进攻方（<red>红</red>）到 <white>"
                     + scoreTargetOf(TeamId.RED) + "</white> 分或拆包成功即胜；防守方（<blue>蓝</blue>）到 <white>"
                     + scoreTargetOf(TeamId.BLUE) + "</white> 分获胜，撑满 <white>"
                     + (rules().timeLimitSeconds() / 60) + "</white> 分钟同样获胜。");
+        } else {
+            broadcast("<gold><bold>对局开始！</bold></gold> <gray>红队到 <white>"
+                    + scoreTargetOf(TeamId.RED) + "</white> 分、蓝队到 <white>"
+                    + scoreTargetOf(TeamId.BLUE) + "</white> 分获胜；时限 <white>"
+                    + (rules().timeLimitSeconds() / 60) + "</white> 分钟，到时比分高者胜。");
+            broadcast("<dark_gray>纯积分赛不含包点相位；需要 CS 式拆包请把房间切到 <white>拆包战</white>。");
         }
         if (isPve()) {
             broadcast("<aqua>PVE 模式</aqua> <gray>所有人同一队，击杀月人得分：<white>+"
@@ -1759,6 +1819,11 @@ public final class GameRoom {
     public void tick() {
         // 每秒清扫过期战斗状态（月人消失后残留的 mark 等），防止状态表无限增长
         plugin.states().sweepExpired();
+        // 头顶名牌（队伍色 + 所选角色）：等待区换角色、补位、复活换队都会改它，
+        // 内部按指纹短路，成员没变化时等于一次比较
+        board.refreshNameTags();
+        // 敌方目标罗盘：补发 + 每秒刷新指针与 Lore（PVE 里只负责清掉）
+        compass.tick();
         switch (phase) {
             case WAITING -> {
                 if (waitingCount() >= effectiveMinPlayers()) {
@@ -1952,6 +2017,7 @@ public final class GameRoom {
         loot.stop();
         baseCapture.stop();
         baseMarker.stop();
+        compass.stop();
         if (bomb != null) {
             bomb.restore();
             bomb = null;
@@ -2177,7 +2243,7 @@ public final class GameRoom {
         return Math.max(0L, (long) rules().baseCaptureDelaySeconds() - elapsedSeconds());
     }
 
-    /** 本局是否由炸弹相位机掌控基地开放（纯 PVP 且场地设了包点）。 */
+    /** 本局是否由炸弹相位机掌控基地开放（拆包战：包点一定存在）。 */
     private boolean usesBombPhase() {
         return bomb != null && !isPve() && !isSengoku();
     }
@@ -2736,7 +2802,7 @@ public final class GameRoom {
                     + "</blue> <gray>，<red>红队 +" + red + "</red> <gray>。");
         }
         boolean blueEmpty = teamPlayers(TeamId.BLUE).isEmpty();
-        broadcast("<blue><bold>蓝队</bold></color> <green>获胜！");
+        broadcast("<blue><bold>蓝队</bold> <green>获胜！");
         finish(blueEmpty ? null : TeamId.BLUE);
     }
 
@@ -2927,7 +2993,7 @@ public final class GameRoom {
         } else {
             String resultLine = winnerTeam == null
                     ? "<yellow>平局！"
-                    : winnerTeam.colorTag() + "<bold>" + winnerTeam.display() + "</bold></color> <green>获胜！";
+                    : winnerTeam.colorTag() + "<bold>" + winnerTeam.display() + "</bold> <green>获胜！";
             broadcast("<dark_gray>========================================");
             broadcast(resultLine + " <gray>比分 " + TeamId.RED.colorTag() + teamScore(TeamId.RED)
                     + " <gray>: " + TeamId.BLUE.colorTag() + teamScore(TeamId.BLUE));
@@ -3205,6 +3271,10 @@ public final class GameRoom {
 
     public LootSpawner loot() {
         return loot;
+    }
+
+    public EnemyBaseCompass compass() {
+        return compass;
     }
 
     public MatchScoreboard scoreboard() {

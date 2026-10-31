@@ -122,9 +122,17 @@ public class SengokuRoundTest {
         expectMode("带空格 SENGOKU ", SengokuMode.SENGOKU_3V3, " sengoku ");
         expectMode("认不出 → 回退 PVP", SengokuMode.PVP, "nonsense");
         expectMode("null → 回退 PVE", SengokuMode.PVE, null);
+        expectMode("bomb", SengokuMode.BOMB, "bomb");
+        expectMode("pvp_bomb 别名", SengokuMode.BOMB, "pvp_bomb");
+        expectMode("cs-bomb 连字符别名", SengokuMode.BOMB, "cs-bomb");
+        expectMode("拆包（中文别名）", SengokuMode.BOMB, "拆包");
         expectBool("SENGOKU_3V3 是多局制", true, SengokuMode.SENGOKU_3V3.isMultiRound());
         expectBool("PVP 不是多局制", false, SengokuMode.PVP.isMultiRound());
         expectBool("PVE 不是战国模式", false, SengokuMode.PVE.isSengoku());
+        expectBool("BOMB 是红蓝对抗", true, SengokuMode.BOMB.isVersus());
+        expectBool("BOMB 不是战国模式", false, SengokuMode.BOMB.isSengoku());
+        expectBool("BOMB 不是多局制", false, SengokuMode.BOMB.isMultiRound());
+        expectBool("PVP 不启用包点相位", false, SengokuMode.PVP.isBomb());
 
         // ── 能量规则（sengoku-energy.yml 的纯逻辑） ─────────────────────
         EnergyRules energy = EnergyRules.defaults();

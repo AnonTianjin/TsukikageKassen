@@ -180,6 +180,11 @@ public final class SengokuMenu implements Listener {
                 "<gray>三局两胜：清守卫 → 敲钟占领 → 击破器攻陷敌方天守阁",
                 "<dark_gray>写入 config.yml，只影响之后新建的房间",
                 "taketori sengoku mode sengoku_3v3"));
+        inventory.setItem(36, run(Material.TNT,
+                (current == SengokuMode.BOMB ? "<green>" : "<gray>") + "全局 → 拆包战",
+                "<gray>红蓝对抗 + CS 式包点（自由 → 拆弹 → 抢基地）",
+                "<dark_gray>场地必须先划包点：/taketori arena setbomb",
+                "taketori sengoku mode bomb"));
         inventory.setItem(40, suggest(Material.COMMAND_BLOCK, "<yellow>只切当前房间",
                 "<gray>已经开着的房间用这条（等待中才能切）",
                 "taketori match mode sengoku_3v3 "));

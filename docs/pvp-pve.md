@@ -29,7 +29,7 @@ match:
 | 键 | 默认 | 说明 |
 | --- | --- | --- |
 | `match.score-to-win` | 600 | 进攻方先到该分数获胜（没有包点的场地两边都用它） |
-| `match.defender-score-to-win` | 600 | 防守方（蓝）目标分；PVP 有包点时按各自目标显示进度 |
+| `match.defender-score-to-win` | 600 | 防守方（蓝）目标分；拆包战里按各自目标显示进度 |
 | `match.attacker-score-multiplier` | 1.0 | 进攻方（红）得分倍率，用来抵消包点给红队多出来的一条获胜路径 |
 | `match.time-limit-minutes` | 20 | 超时按分高者胜，平分判平局 |
 | `match.team-size` | 3 | 每队人数上限（PVP 满员判定与分队容量） |
@@ -43,9 +43,11 @@ match:
 通用时限只对 PVP/PVE 生效：战国模式恒跳过（战国积分恒 0-0，
 胜负由 `SengokuSession` 按小局比分决定，见其文档第九节）。
 
-## 三、包点（PVP 专属，bomb 段）
+## 三、包点（拆包战模式专属，bomb 段）
 
-场地划了包点之后，这一局多一条获胜路径：进攻方（红）在拆弹窗口内把 TNT 拆开就赢，不必刷满分数。
+包点现在是**独立模式 `bomb`**（`/taketori match mode bomb` 或 `match.mode: bomb`）：只有拆包战房间才会跑下面这套相位，纯 PVP 即使场地划了包点也不接管。
+
+拆包战里包点是一条独立获胜路径：进攻方（红）在拆弹窗口内把 TNT 拆开就赢，不必刷满分数。
 
 | 键 | 默认 | 说明 |
 | --- | --- | --- |
@@ -122,10 +124,10 @@ match:
 | 键 | 默认 | 说明 |
 | --- | --- | --- |
 | `count-per-team` | 3 | `3` = 编号 1~3 且双方配满才能开局；`auto` = 至少 1 个即可（编号上限 16）；`N` = 1~16 任意 |
-| `capture-seconds` | 10 | 连续占点秒数（可理解为基地耐久） |
+| `capture-seconds` | 20 | 连续占点秒数（可理解为基地耐久） |
 | `capture-delay-seconds` | 60 | 开局保护期，期间禁止占点 |
 | `decay-per-second` | 0.5 | 区域内无敌时进度衰减 |
-| `multi-player-bonus` | true | 多人同占是否加速 |
+| `multi-player-bonus` | false | 多人同占是否加速（默认关 = 固定读条时长） |
 
 占点结算在 `BaseCaptureManager`：敌方玩家在基地区域内累积进度，读满拆除、
 得分 `scoring.base-capture`。基地区域用 `/taketori arena setbase <red|blue> [编号]`

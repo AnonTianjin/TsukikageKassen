@@ -88,7 +88,8 @@ public final class MatchCommand {
                     mode = SengokuMode.parse(args[3], null);
                     if (mode == null) {
                         send(sender, "<red>模式 '" + args[3] + "' 不合法。"
-                                + " <gray>可用：<white>pvp</white> | <white>pve</white> | <white>sengoku_3v3</white>");
+                                + " <gray>可用：<white>pvp</white> | <white>pve</white> | "
+                                + "<white>bomb</white> | <white>sengoku_3v3</white>");
                         return;
                     }
                 }
@@ -109,7 +110,7 @@ public final class MatchCommand {
             }
             default -> {
                 send(sender, "<gold>===== 房间列表（" + plugin.rooms().rooms().size() + "）=====");
-                send(sender, "<gray>用法：<white>/taketori room create [模板id] [pvp|pve|sengoku_3v3]</white> <gray>| <white>delete [房间id]</white>");
+                send(sender, "<gray>用法：<white>/taketori room create [模板id] [pvp|pve|bomb|sengoku_3v3]</white> <gray>| <white>delete [房间id]</white>");
                 if (plugin.rooms().rooms().isEmpty()) {
                     send(sender, "<gray>还没有房间：<white>/taketori room create [模板id] [模式]</white> 创建，"
                             + "或在菜单里点「降临月宫」。");
@@ -117,7 +118,7 @@ public final class MatchCommand {
                 for (GameRoom room : plugin.rooms().rooms()) {
                     send(sender, "<gray>[" + room.id() + "] <white>" + room.display()
                             + " <gray>：<white>" + phaseText(room)
-                            + " <gray>模式 <white>" + (room.isPve() ? "PVE" : "PVP")
+                            + " <gray>模式 <white>" + modeText(room)
                             + " <gray>人数 <white>" + (room.isRunning() ? room.onlineParticipantCount() : room.waitingCount())
                             + "/" + room.maxPlayers()
                             + (room.creatorId() != null ? " <dark_gray>房主 " + room.nameOf(room.creatorId()) : ""));
@@ -264,7 +265,7 @@ public final class MatchCommand {
             case "mode" -> setMode(sender, args);
             case "difficulty", "diff" -> setDifficulty(sender, args);
             default -> send(sender, "<gray>用法：/taketori match start [房间id] [force] | force [房间id]"
-                    + " | stop [房间id] [原因] | status | mode <pvp|pve> [房间id]"
+                    + " | stop [房间id] [原因] | status | mode <pvp|pve|bomb|sengoku_3v3> [房间id]"
                     + " | difficulty <easy|normal|hard>");
         }
     }
@@ -296,7 +297,7 @@ public final class MatchCommand {
             }
             plugin.shopNpc().setNpcLocation(team, player.getLocation());
             send(sender, "<green>已把 " + team.colorTag() + team.display()
-                    + "</color> <green>的商人挪到当前位置（坐标已写入配置）。");
+                    + " <green>的商人挪到当前位置（坐标已写入配置）。");
             send(sender, "<gray>商人只负责开店，卖什么由队伍决定：<red>红队买拆弹钳"
                     + "</red> <gray>，<blue>蓝队买地雷</blue> <gray>。");
             return;
@@ -438,7 +439,7 @@ public final class MatchCommand {
         PveSettings pve = plugin.pveSettings();
         send(sender, "<gold>===== PVE 设置（全局默认，各房间下一轮开局读取） =====");
         var modes = plugin.rooms().rooms().stream()
-                .map(room -> room.id() + "=" + (room.isPve() ? "PVE" : "PVP"))
+                .map(room -> room.id() + "=" + modeText(room))
                 .reduce((a, b) -> a + " " + b);
         send(sender, "<gray>各房间模式：<white>" + modes.orElse("无启用房间")
                 + " <dark_gray>（/taketori match mode <pvp|pve> [id] 单独切）");
@@ -498,7 +499,7 @@ public final class MatchCommand {
                         + " <gray>：<white>" + modeText(room)
                         + " <dark_gray>（" + phaseText(room) + "）");
             }
-            send(sender, "<gray>用法：/taketori match mode <pvp|pve|sengoku_3v3> [房间id]"
+            send(sender, "<gray>用法：/taketori match mode <pvp|pve|bomb|sengoku_3v3> [房间id]"
                     + "（只改该房间，等待中可切）");
             send(sender, "<dark_gray>要改全局默认（之后新建的房间都用它）："
                     + "<white>/taketori sengoku mode <模式>");
@@ -507,7 +508,7 @@ public final class MatchCommand {
         SengokuMode mode = SengokuMode.parse(args[2], null);
         if (mode == null) {
             send(sender, "<red>模式只能是 <white>pvp</white> / <white>pve</white> "
-                    + "/ <white>sengoku_3v3</white>。");
+                    + "/ <white>bomb</white> / <white>sengoku_3v3</white>。");
             return;
         }
         GameRoom target;
@@ -540,8 +541,14 @@ public final class MatchCommand {
                 send(sender, "<dark_gray>开局的就绪判定只看战国点位，"
                         + "用 <white>/taketori sengoku check</white> 确认是否齐全。");
             }
-            default -> send(sender, "<gray>PVP：红蓝对抗；"
-                    + "友伤保护按 <white>auto</white> 会开启（同队互免伤害）。");
+            case BOMB -> {
+                send(sender, "<gray>拆包战：红蓝对抗 + CS 式包点三相位"
+                        + "（自由时段 → 拆弹窗口 → 抢基地）。");
+                send(sender, "<dark_gray>场地必须先划包点：<white>/taketori arena setbomb</white>；"
+                        + "没划的话开局会被拦下。");
+            }
+            default -> send(sender, "<gray>PVP：红蓝对抗积分赛，不含包点相位；"
+                    + "需要拆包请切 <white>拆包战</white>。");
         }
     }
 
@@ -549,6 +556,9 @@ public final class MatchCommand {
     private String modeText(GameRoom room) {
         if (room.isSengoku()) {
             return "战国 3v3";
+        }
+        if (room.isBombMode()) {
+            return "拆包战";
         }
         return room.isPve() ? "PVE" : "PVP";
     }

@@ -55,14 +55,14 @@ public record MatchRules(int scoreToWin,
 
     /**
      * 默认值：600 分获胜、20 分钟、5 秒复活、3/10/50 分、
-     * 40 血铁甲僵尸（每 9 秒 3 只、上限 15）、基地读条 10 秒、开局 60 秒保护期、
+     * 40 血铁甲僵尸（每 9 秒 3 只、上限 15）、基地读条 20 秒（多人同占不加速）、开局 60 秒保护期、
      * 击杀敌人回血 3 颗心（6 点）、默认 PVP 模式、友伤保护 auto（PVP 开 / PVE 关）。
      */
     public static MatchRules defaults() {
         return new MatchRules(600, 20 * 60, 5,
                 3, 10, 50,
                 40, true, 9, true, 9, true, 9, 3, 15,
-                10.0D, 60.0D, 0.5D, true, true,
+                20.0D, 60.0D, 0.5D, false, true,
                 6.0D, 0.0D, false, "auto");
     }
 

@@ -14,12 +14,30 @@ language: zh_CN
 debug: false
 
 storage:
-  # 当前只支持 yaml（文件存储），各类数据分别落在：
-  #   data/players.yml —— 玩家角色绑定 + 隐性标签
-  #   data/stats.yml   —— 跨局统计（积分 / 对局数 / 胜场 / 击杀 / 拆家 / 死亡 / 单局最高）
-  #   另：场地在 arena.yml、大厅在 lobby.yml、配置在各自的 yml 里
-  # 注意：SQL 后端尚未实现，改这一项不会有任何效果（保留此项只为将来扩展留位）。
+  # 数据后端：玩家档案（角色绑定 / 隐性标签）与跨局战绩共用同一套
+  #   yaml    = 默认，data/players.yml + data/stats.yml
+  #   sqlite  = 单文件数据库（零配置，适合单机服）
+  #   mysql   = MySQL / MariaDB（群组服或需要外部查询时用）
+  # SQL 驱动不写进 plugin.yml（离线服会因此整插件加载失败），改为按需加载：
+  #   Paper 26.1 自带 sqlite-jdbc / mysql-connector-j，通常无需手动放；
+  #   精简构建或换平台时把 sqlite-jdbc-*.jar / mysql-connector-j-*.jar 放进 drivers/ 后重启。
+  # 开 SQL 却没放驱动、或库连不上时：记一条 SEVERE 并回退 YAML，插件照常运行。
+  # 切换后端只在启用时生效，/taketori reload 不会热切（换后端请重启）。
+  #   另：场地在 arena.yml、大厅在 lobby.yml、其它配置在各自的 yml 里（不受这里影响）
   type: yaml
+  # 表名前缀（mysql / sqlite 共用；多套服务共用一个库时用来隔开）
+  table-prefix: kassen_
+  sqlite:
+    # 相对路径按插件数据目录解析，也可以写绝对路径
+    file: data/kassen.db
+  mysql:
+    host: 127.0.0.1
+    port: 3306
+    database: tsukikage
+    username: root
+    password: ''
+    use-ssl: false
+    timeout-seconds: 5
 
 # ============================ 多世界兼容 ============================
 # 给 Multiverse 之类的多世界服务器用：控制"消息播报发给哪些世界"。
@@ -111,10 +129,13 @@ input:
   shift-right-trigger: double-sneak
 
 # ============================ 对局规则（玩法层）============================
-# CS 式拆包攻防：开局包点是普通方块，延迟若干秒后变成 TNT，进攻方（红）读条拆掉即胜，
-# 防守方（蓝）拖到拆除时限结束就算守住。
+# 四种模式：pvp 积分赛 / pve 月人入侵 / bomb 拆包战 / sengoku_3v3 战国。
+# 其中「拆包战」= 红蓝对抗 + CS 式包点三相位：
+#   开局包点是普通方块，延迟若干秒后变成 TNT，进攻方（红）读条拆掉即胜，
+#   防守方（蓝）拖到拆除时限结束就算守住。
 # 第二种获胜方式是攒够目标分（红队=进攻方，蓝队=防守方，目标分不同）；
 # 时限到一律判防守方（蓝队）获胜。
+# 纯 PVP 不再接管包点：场地就算划了包点，也要把房间切到 bomb 才会跑这套相位。
 # 场地用指令划定（/taketori arena ...），保存在 arena.yml；包点用 setbomb 设置。
 match:
   # 进攻方（红队）先达到多少分获胜
@@ -134,12 +155,18 @@ match:
   respawn-delay-seconds: 5
   # 死亡是否保留物品（竞技默认保留）
   keep-inventory: true
-  # 对局模式：pvp = 红蓝对抗；pve = 所有人同一队打月人（不占点、默认无友伤保护）
-  # 也可以用指令切换：/taketori match mode pvp|pve
+  # 对局模式（只影响之后新建的房间）：
+  #   pvp           红蓝对抗积分赛（不含包点相位）
+  #   pve           所有人同一队打月人（不占点、默认无友伤保护）
+  #   bomb          拆包战：红蓝对抗 + CS 式包点（场地必须划包点，否则开局被拦下）
+  #   sengoku_3v3   战国 3v3（三局两胜）
+  # 也可以用指令切换：/taketori match mode pvp|pve|bomb|sengoku_3v3
   mode: pvp
 
-# ============================ CS 式包点 ============================
-# 一局分三个阶段（没设置包点的场地跳过全部三个阶段，只按分数判胜负）：
+# ============================ CS 式包点（拆包战模式）============================
+# 只有「拆包战（bomb）」模式才会进入下面三个阶段；PVP / PVE / 战国一律跳过
+# （PVP 只按分数判胜负，基地按 base.capture-delay-seconds 开放）。
+# 一局分三个阶段：
 #   1) FREE_TIME 自由时段 activation-delay-seconds 秒：双方在出生点准备，包点还是原方块
 #   2) DEFUSE 拆弹时段 defuse-time-limit-seconds 秒：包点方块变成 TNT，只有进攻方（红队）能拆
 #      · 站到包点 4.5 格内左键开始读条：空手 defuse-seconds-bare 秒，持拆弹钳（剪刀）defuse-seconds-clipper 秒
@@ -391,10 +418,10 @@ base:
   #   N     = 任意正整数（1~16）：可用编号 1~N，双方都要配满 N 个才能开局
   # 改完记得确认双方实际配的数量对得上（/taketori arena list 会显示"是否可开局"）。
   count-per-team: 3
-  capture-seconds: 10        # 拆除一个基地需要连续占点多少秒（核心耐久）
+  capture-seconds: 20        # 拆除一个基地需要连续占点多少秒（核心耐久）
   capture-delay-seconds: 60  # 开局保护期：前 60 秒禁止占点
   decay-per-second: 0.5      # 区域内没有敌人时，进度每秒衰减多少（0 = 不衰减）
-  multi-player-bonus: true   # 多人同时占点是否加速
+  multi-player-bonus: false  # 多人同时占点是否加速（关 = 站几个人都是固定读条时长）
 
 # ============================ PVE：月人入侵 ============================
 # 只在模式为 pve 时生效（/taketori match mode pve）。

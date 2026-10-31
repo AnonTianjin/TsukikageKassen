@@ -104,15 +104,15 @@ public final class SengokuCommand {
         if (args.length < 3) {
             send(sender, "<gold>当前全局模式：<white>" + current.key()
                     + "</white> <dark_gray>(" + describeMode(current) + ")");
-            send(sender, "<gray>用法：<white>/taketori sengoku mode <pvp|pve|sengoku_3v3>");
+            send(sender, "<gray>用法：<white>/taketori sengoku mode <pvp|pve|bomb|sengoku_3v3>");
             send(sender, "<dark_gray>只影响之后新建的房间；改单个房间用 "
                     + "/taketori match mode <模式> [房间id]。");
             return;
         }
         SengokuMode mode = SengokuMode.parse(args[2], null);
         if (mode == null) {
-            send(sender, "<red>模式只能是 <white>pvp</white> / <white>pve</white> "
-                    + "/ <white>sengoku_3v3</white>。");
+            send(sender, "<red>模式只能是 <white>pvp</white> / <white>pve</white> / "
+                    + "<white>bomb</white> / <white>sengoku_3v3</white>。");
             return;
         }
         plugin.config().setMatchMode(mode);
@@ -131,7 +131,8 @@ public final class SengokuCommand {
         return switch (mode) {
             case PVE -> "所有人同一队打月人，含据点保卫与波次";
             case SENGOKU_3V3 -> "三局两胜：清守卫 → 敲钟占领箭楼 → 击破器攻陷敌方天守阁";
-            default -> "红蓝对抗，积分赛";
+            case BOMB -> "红蓝对抗 + CS 式包点：自由时段 → 拆弹窗口 → 抢基地（需划包点）";
+            default -> "红蓝对抗，积分赛（不含包点）";
         };
     }
 

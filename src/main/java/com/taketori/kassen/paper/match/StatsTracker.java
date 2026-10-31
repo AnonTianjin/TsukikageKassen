@@ -2,10 +2,7 @@ package com.taketori.kassen.paper.match;
 
 import com.taketori.kassen.TaketoriPlugin;
 import com.taketori.kassen.core.match.TeamId;
-import org.bukkit.configuration.ConfigurationSection;
-import org.bukkit.configuration.file.YamlConfiguration;
 
-import java.io.File;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumMap;
@@ -13,10 +10,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.logging.Level;
 
 /**
- * 跨局累计统计（<code>data/stats.yml</code>）：总积分、对局数、胜场、击杀、月人击杀、拆家、死亡、单局最高分。
+ * 跨局累计统计（由 {@code DataStore} 落盘：YAML / SQLite / MySQL 皆可）：总积分、对局数、胜场、击杀、月人击杀、拆家、死亡、单局最高分。
  *
  * <p>所有数值都是跨局累加、服务器重启后保留，是总计排行榜（{@link StatsMenu}）的数据来源。
  * 单局内的得分王由各 {@link com.taketori.kassen.paper.match.room.GameRoom} 在结算时播报，两者互不影响。</p>
@@ -96,63 +92,53 @@ public final class StatsTracker {
     }
 
     private final TaketoriPlugin plugin;
-    private final File file;
     private final Map<String, Entry> entries = new LinkedHashMap<>();
 
     public StatsTracker(TaketoriPlugin plugin) {
         this.plugin = plugin;
-        this.file = new File(plugin.getDataFolder(), "data/stats.yml");
     }
 
     public Stat[] stats() {
         return Stat.values();
     }
 
+    /**
+     * 从当前数据后端载入战绩（YAML / SQLite / MySQL 走同一个接口）。
+     *
+     * <p>统计项键名沿用 {@code stats.yml} 的字段名，所以换后端不需要做数据迁移。</p>
+     */
     public void load() {
         entries.clear();
-        if (!file.exists()) {
-            return;
-        }
-        YamlConfiguration yaml = YamlConfiguration.loadConfiguration(file);
-        ConfigurationSection root = yaml.getConfigurationSection("players");
-        if (root == null) {
-            return;
-        }
-        for (String name : root.getKeys(false)) {
-            ConfigurationSection section = root.getConfigurationSection(name);
-            if (section == null) {
-                continue;
-            }
+        for (Map.Entry<String, Map<String, Long>> row : plugin.dataStore().loadStats().entrySet()) {
             Entry entry = new Entry();
             for (Stat stat : Stat.values()) {
-                entry.set(stat, section.getLong(stat.key(), 0L));
-            }
-            entries.put(name, entry);
-        }
-        plugin.getLogger().info("已载入 " + entries.size() + " 名玩家的历史战绩");
-    }
-
-    public void save() {
-        YamlConfiguration yaml = new YamlConfiguration();
-        for (Map.Entry<String, Entry> mapEntry : entries.entrySet()) {
-            String path = "players." + mapEntry.getKey();
-            Entry entry = mapEntry.getValue();
-            for (Stat stat : Stat.values()) {
-                long value = entry.get(stat);
-                if (value != 0L) {
-                    yaml.set(path + "." + stat.key(), value);
+                Long value = row.getValue().get(stat.key());
+                if (value != null) {
+                    entry.set(stat, value);
                 }
             }
+            entries.put(row.getKey(), entry);
         }
-        try {
-            File parent = file.getParentFile();
-            if (parent != null && !parent.exists() && !parent.mkdirs()) {
-                plugin.getLogger().warning("无法创建数据目录: " + parent);
+        plugin.getLogger().info("已载入 " + entries.size() + " 名玩家的历史战绩（"
+                + plugin.dataStore().backend() + "）");
+    }
+
+    /** 整批写回当前数据后端（YAML 重写文件；SQL 是一条条 UPSERT）。 */
+    public void save() {
+        Map<String, Map<String, Long>> snapshot = new LinkedHashMap<>();
+        for (Map.Entry<String, Entry> mapEntry : entries.entrySet()) {
+            Map<String, Long> row = new LinkedHashMap<>();
+            for (Stat stat : Stat.values()) {
+                long value = mapEntry.getValue().get(stat);
+                if (value != 0L) {
+                    row.put(stat.key(), value);
+                }
             }
-            yaml.save(file);
-        } catch (Exception ex) {
-            plugin.getLogger().log(Level.SEVERE, "保存 stats.yml 失败", ex);
+            if (!row.isEmpty()) {
+                snapshot.put(mapEntry.getKey(), row);
+            }
         }
+        plugin.dataStore().saveStats(snapshot);
     }
 
     // ---------------------------------------------------------------- 写入

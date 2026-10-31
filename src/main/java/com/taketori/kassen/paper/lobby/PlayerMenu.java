@@ -264,7 +264,7 @@ public final class PlayerMenu implements Listener {
             lore.add(MINI.deserialize("<yellow>点击加入 " + team.display()));
         }
         item.editMeta(meta -> {
-            meta.displayName(MINI.deserialize(team.colorTag() + "<bold>" + team.display() + "</bold></color>"
+            meta.displayName(MINI.deserialize(team.colorTag() + "<bold>" + team.display() + "</bold>"
                     + (mine ? " <green>（当前）" : "")));
             meta.lore(lore);
         });

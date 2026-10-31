@@ -34,6 +34,14 @@ public final class PDCKeys {
      */
     private static NamespacedKey roomShell;
 
+    /**
+     * 敌方基地罗盘（指南针）的标记键。
+     *
+     * <p>只在「拆包战 / 积分赛 / 战国」对局内发放到快捷栏倒数第二格，指针每秒指向
+     * 最近的敌方基地（拆包战里优先指向包点）。只认这个 PDC，不认显示名与 Lore。</p>
+     */
+    private static NamespacedKey enemyCompass;
+
     private static NamespacedKey projDamage;
     private static NamespacedKey projRadius;
     private static NamespacedKey projIgnite;
@@ -143,6 +151,7 @@ public final class PDCKeys {
         setupWand = new NamespacedKey(plugin, "setup_wand");
         menuClock = new NamespacedKey(plugin, "menu_clock");
         roomShell = new NamespacedKey(plugin, "room_shell");
+        enemyCompass = new NamespacedKey(plugin, "enemy_compass");
 
         projDamage = new NamespacedKey(plugin, "proj_damage");
         projRadius = new NamespacedKey(plugin, "proj_radius");
@@ -226,6 +235,11 @@ public final class PDCKeys {
     /** 对局功能壳（鹦鹉螺壳）的标记键。 */
     public static NamespacedKey roomShell() {
         return roomShell;
+    }
+
+    /** 敌方基地罗盘的标记键。 */
+    public static NamespacedKey enemyCompass() {
+        return enemyCompass;
     }
 
     public static NamespacedKey projDamage() {

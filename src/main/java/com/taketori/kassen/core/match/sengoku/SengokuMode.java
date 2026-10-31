@@ -11,12 +11,14 @@ import java.util.Locale;
  */
 public enum SengokuMode {
 
-    /** 3v3 积分赛（既有）。 */
+    /** 3v3 积分赛（既有）：纯比分对抗，不跑包点相位。 */
     PVP("pvp"),
     /** PVE 月人入侵（既有）。 */
     PVE("pve"),
     /** 战国 3v3：三局两胜，箭楼 → 击破器 → 天守阁。 */
-    SENGOKU_3V3("sengoku_3v3");
+    SENGOKU_3V3("sengoku_3v3"),
+    /** 拆包战：红蓝对抗 + CS 式包点三相位（场地必须划包点）。 */
+    BOMB("bomb");
 
     private final String key;
 
@@ -31,6 +33,16 @@ public enum SengokuMode {
 
     public boolean isSengoku() {
         return this == SENGOKU_3V3;
+    }
+
+    /** 拆包战：红蓝对抗 + 包点三相位。 */
+    public boolean isBomb() {
+        return this == BOMB;
+    }
+
+    /** 红蓝对抗模式（PVP / 拆包战共用积分、基地、加时那一套）。 */
+    public boolean isVersus() {
+        return this == PVP || this == BOMB;
     }
 
     /** 是否是多局制（目前只有战国模式；PVP / PVE 仍是单局）。 */
@@ -52,6 +64,7 @@ public enum SengokuMode {
             case "pvp" -> PVP;
             case "pve" -> PVE;
             case "sengoku_3v3", "sengoku", "war_3v3", "war_3v3_best_of_3", "best_of_3" -> SENGOKU_3V3;
+            case "bomb", "pvp_bomb", "bomb_defuse", "defuse", "cs", "cs_bomb", "拆包", "拆弹" -> BOMB;
             default -> fallback;
         };
     }
