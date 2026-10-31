@@ -485,7 +485,7 @@ public final class RoomManager {
         if (world == null) {
             if (creator != null && creator.isOnline()) {
                 creator.sendMessage(plugin.config().messages().get("room.create-failed",
-                        "reason", "服务器未能加载世界"));
+                        "reason", "世界加载失败，清理残留目录后请重试"));
             }
             deleteWorldFolders(worldName, 1);
             return;
@@ -1605,8 +1605,10 @@ public final class RoomManager {
                                 "reason", error == null ? "复制失败" : String.valueOf(error.getMessage())));
                         return;
                     }
-                    World world = new WorldCreator(worldName).createWorld();
+                    World world = createWorldCleanly(worldName);
                     if (world == null) {
+                        plugin.getLogger().warning("[moonmap] 服务器未能加载编辑世界 " + worldName
+                                + "（WorldCreator 返回 null）");
                         admin.sendMessage(plugin.config().messages().get("room.create-failed",
                                 "reason", "服务器未能加载世界"));
                         return;
