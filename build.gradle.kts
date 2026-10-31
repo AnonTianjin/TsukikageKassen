@@ -9,8 +9,10 @@ group = "com.taketori"
 version = providers.gradleProperty("version").getOrElse("0.0.0-dev")
 
 repositories {
-    mavenCentral()
+    // Paper 的仓库放在前面：paper-api 的传递依赖（adventure 4.26.1、gson 等）
+    // 在 Maven Central 上可能还没同步，先问 Paper 的 maven-public 能避开冷缓存时解析失败。
     maven("https://repo.papermc.io/repository/maven-public/")
+    mavenCentral()
 }
 
 dependencies {
