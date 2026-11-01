@@ -112,7 +112,6 @@ miss-sound / slow-type` 等表现键各类型通用，不再重复列出。
 | 类型 | 参数键 |
 | --- | --- |
 | `projectile` 弹体 | `projectile` `speed` `spawn-offset` `gravity` `damage` `radius`（溅射） `ignite` `ignite-ticks` `freeze-ticks` `slow-duration` `slow-amplifier` `knockback` `min-falloff` `homing-strength` `homing-range` `echo-bonus` `mark-bonus` `mark-ticks` `armor-pierce` `armor-pierce-ticks` |
-| `special_shot_toggle` 特殊射击开关 | `damage-multiplier` `speed-multiplier` `volley-spread` `volley-interval` `mark-bonus` `mark-ticks` `hit-radius` `hit-radius-ratio` |
 
 弹体伤害统一在 `ProjectileListener` 结算（原版伤害事件层取消），命中过滤与
 homing 目标过滤同口径（统一目标过滤）。无箭射击（夕月）在 `CombatListener`
@@ -142,7 +141,6 @@ homing 目标过滤同口径（统一目标过滤）。无箭射击（夕月）�
 | `shield_guard` 护盾架势 | `duration-ticks` `resistance-amplifier` `absorption` `reflect-ratio` `self-slow-amplifier` `self-slow-ticks` `ally-radius` `ally-absorption` `ally-resistance-amplifier` `armor-pierce` |
 | `reflect` 镜面 | `duration-ticks` `speed-multiplier` `absorption` `reflect-ratio` |
 | `mirror_skill` 镜面模式 | 同 `reflect`（少 `speed-multiplier`） |
-| `mode_switch` / `equip_switch` | 仅表现键（`target` 供 equip_switch） |
 
 ### 场地与召唤
 
@@ -189,7 +187,7 @@ homing 目标过滤同口径（统一目标过滤）。无箭射击（夕月）�
 | --- | --- | --- |
 | 参数键（`checkParamKeys`） | 技能 params 必须被 `ALLOWED_PARAMS` 收录 | 启动/reload 控制台逐条点名 |
 | 属性名 | `attributes` 经 VersionAdapter 解析 | `weapons.yml [id] attributes … 无法解析` |
-| 材质 / 模式 | `material` 可解析、`default-mode ∈ modes` | reload 报错，武器回退或拒绝 |
+| 材质 | `material` 可解析 | reload 报错，武器回退或拒绝 |
 | 技能类型 | `type` 已注册（`SkillRegistry`） | `技能类型未注册` |
 
 排查工具：`/taketori doctor`（识别、绑定、名字解析一次性报告）、

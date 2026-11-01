@@ -298,7 +298,7 @@ c. 手头没有地图、只想先试一局：生成一张空白平坦模板：
 
 | 模式 | 切换 | 节奏 |
 | --- | --- | --- |
-| 3v3 积分赛（PVP） | 默认 | 先到 `match.score-to-win` 或时限到时比分高者胜（**不含包点相位**） |
+| 3v3 积分赛（PVP） | 默认 | 红队先到 `match.score-to-win`（500）/ 蓝队先到 `match.defender-score-to-win`（600），或时限到时比分高者胜（**不含包点相位**） |
 | PVE 月人入侵 | `/taketori match mode pve [房间id]` | 全员同一队守据点，撑过五大波次 |
 | 拆包战（bomb） | `/taketori match mode bomb [房间id]` | 红蓝对抗 + CS 式包点：自由时段 → 拆弹窗口 → 抢基地；场地必须划包点 |
 | 战国 3v3（三局两胜） | `/taketori match mode sengoku_3v3 [房间id]` | 每小局攻陷敌方天守阁者胜，先赢两小局赢整场 |
@@ -318,6 +318,11 @@ c. 手头没有地图、只想先试一局：生成一张空白平坦模板：
 | 精英月人 | 每 5 波一批（钻甲 + 药水 buff），只在 mixed 标签刷新区出现 |
 | 复活 | 死亡 5 秒后回己方出生点，死亡不掉落物品 |
 | 基地标记 | 双方基地用队伍颜色粒子持续标出（12 格光柱 + 四角立柱 + 顶部十字，远处看柱、近处看框），被拆后标记立即消失 |
+
+得分不对称：红队（进攻方）目标分 `match.score-to-win`（默认 500），其得分按
+`match.attacker-score-multiplier`（默认 0.6667）折算；蓝队（防守方）目标分
+`match.defender-score-to-win`（默认 600）。时限到时仍未分胜负则发起加时投票，
+未通过判防守方（蓝队）守住。
 
 PVE 月人入侵：所有人同一队、不占点、玩家之间默认无伤害。
 
@@ -416,9 +421,9 @@ PVE 月人入侵：所有人同一队、不占点、玩家之间默认无伤害�
 /taketori ranks [榜单]             总计排行榜 GUI
 /taketori stats [数量]             聊天栏版排行榜（跨局累计）
 /taketori character <角色id|none>  选择 / 取消自己的角色
-/taketori skills                   查看手里武器四个槽位的技能与冷却
-/taketori mode                     手动触发 Q 槽技能（Q 被别的插件吞掉时用）
-/taketori f                        手动触发第三槽技能
+/taketori skills                   查看手里武器三个技能槽 + 被动的技能与冷却
+/taketori mode                     兼容旧命令：2.0 起已移除武器模式切换（Q 槽下线），仅回提示
+/taketori f                        手动触发第三槽（sneak）技能（同 /taketori sneak）
 /taketori keys                     按键诊断：回放最近收到的原始输入事件
 /taketori lobby join|leave|spectate 快速加入房间 / 退房回大厅 / 旁观
 /taketori leave                    退出观战、离开等待房间（对局中参赛者不能中途退出）
@@ -558,16 +563,18 @@ PVE 月人入侵：所有人同一队、不占点、玩家之间默认无伤害�
 
 | 段 | 关键项 | 默认 |
 | --- | --- | --- |
-| `match` | `mode` / `score-to-win` / `time-limit-minutes` / `team-size` / `respawn-delay-seconds` / `keep-inventory` | pvp / 600 / 20 / 3 / 5 / true |
+| `match` | `mode` / `score-to-win` / `defender-score-to-win` / `attacker-score-multiplier` / `time-limit-minutes` / `team-size` / `respawn-delay-seconds` / `keep-inventory` | pvp / 500 / 600 / 0.6667 / 20 / 3 / 5 / true |
 | `waiting` | `min-players` / `countdown-seconds` / `half-countdown-seconds` / `full-countdown-seconds` / `cage-hold-seconds` / `end-delay-seconds` / `cage-material` / `pve-full-players` / `void-y-offset` / `protect` | 2 / 90 / 30 / 5 / 3 / 5 / GLASS / 0（取 team-size）/ -10 / true |
 | `room` | `max-rooms` / `max-rooms-per-player` / `world-prefix` / `default-template` / `empty-dispose-seconds` / `understaffed-grace-seconds` / `rejoin-seconds` | 8 / 1 / kassen_ / tsukuyomi / 60 / 60 / 300 |
+| `room-shell` | `enabled` / `material` | true / NAUTILUS_SHELL |
+| `party` | `max-size` | 3 |
 | `scoring` | `minion-kill` / `player-kill` / `base-capture` | 3 / 10 / 50 |
-| `combat` | `kill-heal` / `minion-kill-heal` / `friendly-fire-protection` / `third-slot-buff` / `match-saturation` | 6.0 / 0.0 / auto / 2 秒跳跃提升 V / true（对局内自动饱和） |
+| `combat` | `kill-heal` / `minion-kill-heal` / `melee-charge-gate` / `friendly-fire-protection` / `third-slot-buff` / `spawn-buff` / `match-saturation` | 6.0 / 0.0 / 0.9 / auto / 2 秒跳跃提升 V / 10 秒抗性 II + 速度 I + 回血 I（出生保护） / true（对局内自动饱和） |
 | `loadout` | `armor-enabled` / `armor-material` / `armor-protection` | true / IRON / 2（保护 II） |
 | `minion` | `health` / `iron-armor` / `interval-seconds` / `per-spawn` / `max-alive` / `types` / `elite` / `normal.*` / `mixed.*` | 40 / true / 9 / 3 / 15 / 僵尸骷髅权重 / 每 5 波 / normal 与 mixed 两类刷新区各自的独立循环（enabled + interval-seconds，未配置回落全局间隔） |
 | `pve` | `difficulty` / `big-waves` / `elite-scaling` / `outpost` | normal / 5 波·8 精英·60 秒 / 每多 1 人 +1 级 / 三档数值 |
 | `base` | `count-per-team` / `capture-seconds` / `capture-delay-seconds` / `decay-per-second` / `multi-player-bonus` | 3（或 auto）/ 20 / 60 / 0.5 / false |
-| `lobby` | `teleport-on-join` / `takeover-worlds` / `protect` / `return-after-match` / `return-to-entry` | true / `[]`（仅大厅世界）/ true / true / true |
+| `lobby` | `auto-start-players` / `teleport-on-join` / `takeover-worlds` / `protect` / `return-after-match` / `return-to-entry` | 6 / true / `[]`（仅大厅世界）/ true / true / true |
 | `bomb` | `activation-delay-seconds` / `defuse-time-limit-seconds` / `defuse-seconds-bare` / `defuse-seconds-clipper` / `reset-seconds` / `blue-keep-score` / `red-consolation-score` | 40 / 110 / 10 / 6 / 7 / 200 / 50（没有包点的场地不生效） |
 | `shop` | `npc.enabled` / `npc.red.*` / `npc.blue.*` / `defuse-clipper.cost` / `defuse-clipper.max-per-player` / `land-mine.cost` / `land-mine.max-per-team` / `land-mine.kill-radius` / `land-mine.trigger-radius` | true / 商人名与坐标 / 30 / 2 / 40 / 2 / 5 / 3 |
 | `overtime` | `enabled` / `duration-seconds` / `kill-score` | true / 60 / 1 |
@@ -576,8 +583,8 @@ PVE 月人入侵：所有人同一队、不占点、玩家之间默认无伤害�
 | `input` | `q-mode` / `weapon-slots` / `shift-right-trigger` | drop / [0,1,2,3] / double-sneak |
 | `items` | `soulbound` / `auto-give-on-join` / `allow-drop` | true / false / false |
 | `feedback` | `actionbar` / `particles` / `sounds` / `cooldown-display` | true / true / true / bossbar |
-| `setup-wand` | `enabled` / `material` / `loot-material` / `give-on-join` | true / NETHERITE_HOE / STRUCTURE_VOID / false |
-| `loot` | `enabled` / `interval-seconds` / `max-drops` / `items` | true / 30 / 6 / 道具池 |
+| `setup-wand` | `enabled` / `material` / `loot-material` / `outline-particles` / `give-on-join` | true / NETHERITE_HOE / STRUCTURE_VOID / true / false |
+| `loot` | `enabled` / `interval-seconds` / `max-drops` / `despawn-seconds` / `items` | true / 30 / 6 / 180 / 道具池 |
 | `tags` | `default` / `vip` / `staff` 的权重 | 0 / 10 / 100 |
 | `floodgate` | `username-prefix` / `strip-prefix` | `.` / true（装了 Floodgate 时去掉基岩名前缀；不装不生效） |
 

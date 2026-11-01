@@ -28,10 +28,10 @@ match:
 
 | 键 | 默认 | 说明 |
 | --- | --- | --- |
-| `match.score-to-win` | 600 | 进攻方先到该分数获胜（没有包点的场地两边都用它） |
-| `match.defender-score-to-win` | 600 | 防守方（蓝）目标分；拆包战里按各自目标显示进度 |
-| `match.attacker-score-multiplier` | 1.0 | 进攻方（红）得分倍率，用来抵消包点给红队多出来的一条获胜路径 |
-| `match.time-limit-minutes` | 20 | 超时按分高者胜，平分判平局 |
+| `match.score-to-win` | 500 | 红队（进攻方）目标分；纯 PVP 里蓝队改用 `defender-score-to-win` |
+| `match.defender-score-to-win` | 600 | 防守方（蓝）目标分（纯 PVP 与拆包战都生效）；拆包战里按各自目标显示进度 |
+| `match.attacker-score-multiplier` | 0.6667 | 进攻方（红）得分倍率（非 PVE / 非战国生效），用来抵消红队多出来的获胜路径 |
+| `match.time-limit-minutes` | 20 | 超时进入加时投票（未通过判防守方守住），加时见第四节 |
 | `match.team-size` | 3 | 每队人数上限（PVP 满员判定与分队容量） |
 | `match.respawn-delay-seconds` | 5 | 死亡自动复活秒数；复活点固定为己方出生点 |
 | `match.keep-inventory` | true | 死亡是否保留物品 |
@@ -39,9 +39,10 @@ match:
 | `scoring.player-kill` | 10 | 击杀敌方玩家（队友互杀不计分，事件层取消） |
 | `scoring.base-capture` | 50 | 拆除基地得分（PVE 无此项） |
 
-胜负判定在 `GameRoom.tick`（PLAYING 分支）：到 `score-to-win` 即 `finish`；
-通用时限只对 PVP/PVE 生效：战国模式恒跳过（战国积分恒 0-0，
-胜负由 `SengokuSession` 按小局比分决定，见其文档第九节）。
+胜负判定在 `GameRoom.tick`（PLAYING 分支）：任一方到达本方目标分即 `finish`；
+通用时限只对 PVP/PVE 生效，战国模式恒跳过（战国积分恒 0-0，胜负由 `SengokuSession`
+按小局比分决定，见其文档第九节）。PVP 时限到未分胜负会发起加时投票（见第四节），
+PVE 时限到直接结算。
 
 ## 三、包点（拆包战模式专属，bomb 段）
 
