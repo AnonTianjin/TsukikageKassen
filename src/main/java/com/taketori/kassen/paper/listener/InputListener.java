@@ -1,10 +1,8 @@
 package com.taketori.kassen.paper.listener;
 
 import com.taketori.kassen.TaketoriPlugin;
-import com.taketori.kassen.core.character.PlayerProfile;
 import com.taketori.kassen.core.skill.SkillDef;
 import com.taketori.kassen.core.skill.SkillSlot;
-import com.taketori.kassen.core.skill.ThirdSlotTrigger;
 import com.taketori.kassen.core.weapon.WeaponDef;
 import com.taketori.kassen.paper.item.ItemFactory;
 import org.bukkit.block.Block;
@@ -29,29 +27,22 @@ import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * 统一输入层：把原版动作翻译成技能槽位。
+ * 统一输入层：把原版动作翻译成三个技能槽位。
  *
- * <p>核心规则（计划 §3.4 的载体护栏）：</p>
+ * <p>核心规则：</p>
  * <ul>
  *   <li>手里拿着插件武器时，<b>永远不参与方块交互</b>（左键不挖方块、右键不放置、不驯服实体）。</li>
- *   <li>某个槽位<b>绑定了技能</b>就取消原版行为并派发技能；<b>没有绑定就放行原版</b>——
- *       于是弓的原版蓄力、盾的原版举盾天然不受影响。</li>
- *   <li>左键的"打实体"与"空挥"是两个事件，用 tick 窗口去重；右键同理。</li>
+ *   <li>某个槽位<b>绑定了技能</b>才取消原版行为并派发；<b>没有绑定就放行原版</b>——
+ *       近战武器的左键因此回到原版普攻，弓的拉弓、三叉戟的投掷、盾的格挡也天然不受影响。</li>
+ *   <li>第三槽固定为<b>双击潜行</b>（{@link SkillSlot#SNEAK}），只放移动类技能。</li>
  * </ul>
  *
- * <p><b>第三槽（F 键那一槽）的触发方式是可配置的</b>，见 {@link ThirdSlotTrigger} 与
- * <code>config.yml</code> 的 <code>input.shift-right-trigger</code>：默认<b>双击潜行键</b>，
- * 因为原版一定会为潜行发出事件，不像 F 键（会被别的插件吞掉）和潜行+右键
- * （对着方块时原版根本不发事件）那样有坑。</p>
- *
- * <p><b>调试</b>：开启 debug 后这里会打印<b>收到的每一个交互事件</b>，包括
- * "主手不是插件武器 → 忽略"这种被跳过的分支；另外 <code>/taketori keys</code>
- * 会回放最近收到的原始输入事件，用来判断"按键到底有没有传到服务端"。</p>
+ * <p><b>调试</b>：开启 debug 后这里会打印收到的每一个交互事件，包括被跳过的分支；
+ * <code>/taketori keys</code> 会回放最近收到的原始输入事件。</p>
  */
 public final class InputListener implements Listener {
 
@@ -65,8 +56,6 @@ public final class InputListener implements Listener {
 
     private final TaketoriPlugin plugin;
 
-    /** 上一次右键的时间（双击右键判定）。 */
-    private final Map<UUID, Long> lastRightClick = new ConcurrentHashMap<>();
     /** 上一次"开始潜行"的时间（双击潜行判定）。 */
     private final Map<UUID, Long> lastSneakStart = new ConcurrentHashMap<>();
     /** 本次右键已经派发过的 tick（挡住"实体交互 + 使用物品"两条路径重复派发）。 */
@@ -99,8 +88,6 @@ public final class InputListener implements Listener {
         }
 
         // 战国铜钟：右键敲钟是玩法动作，不能被右键技能吃掉。
-        // 手持插件武器时下面的分支会派发技能并 setCancelled(true)，敲钟监听就再也收不到事件——
-        // 而玩家在战国模式里几乎总是拿着武器，那会导致箭楼永久无法占领。
         if (action == Action.RIGHT_CLICK_BLOCK && isSengokuBell(player, event.getClickedBlock())) {
             debug(player, action, hand, identity, "目标是战国铜钟 → 放行给敲钟逻辑");
             return;
@@ -118,25 +105,16 @@ public final class InputListener implements Listener {
             debug(player, action, hand, identity, "weapon_id=" + identity.weaponId() + " 在 weapons.yml 里不存在 → 忽略");
             return;
         }
-        PlayerProfile profile = plugin.config().characters().profile(player.getUniqueId());
-        String mode = profile.mode(weapon.id(), weapon.defaultMode());
 
         switch (action) {
             case RIGHT_CLICK_AIR, RIGHT_CLICK_BLOCK -> {
-                // 顺序很重要：先判断"这次右键是不是在触发第三槽"（双击右键 / 潜行右键），
-                // 是就直接派发第三槽，不再走 right —— 这正是"潜行右键被右键槽先吃掉"的修法。
-                if (rightClickTriggersThirdSlot(player)) {
-                    event.setCancelled(true);
-                    debug(player, action, hand, identity, "右键被识别为第三槽触发 → 派发 shift-right");
-                    dispatchThirdSlot(player, hand, "右键（第三槽触发）");
-                    return;
-                }
                 if (!claimRightClick(player)) {
                     debug(player, action, hand, identity, "同一次右键已由实体交互处理 → 去重跳过");
                     return;
                 }
-                SkillDef def = weapon.skill(SkillSlot.RIGHT, mode);
+                SkillDef def = weapon.skill(SkillSlot.RIGHT);
                 if (!def.isPresent()) {
+                    // 弓 / 三叉戟 / 盾就靠这一分支走原版行为
                     debug(player, action, hand, identity, "槽位 right 未绑定技能 → 放行原版行为");
                     return;
                 }
@@ -145,14 +123,10 @@ public final class InputListener implements Listener {
                 plugin.skills().dispatch(player, hand, SkillSlot.RIGHT, true);
             }
             case LEFT_CLICK_AIR -> {
-                SkillDef def = weapon.skill(SkillSlot.LEFT, mode);
+                // 近战武器的 left 留空 → 原版挥击照常；只有弓在这里绑了主动技能
+                SkillDef def = weapon.skill(SkillSlot.LEFT);
                 if (!def.isPresent()) {
-                    debug(player, action, hand, identity, "槽位 left 未绑定技能 → 放行原版行为");
-                    return;
-                }
-                // 与"左键命中实体"共享同一次挥击窗口
-                if (profile.markSwing(player.getWorld().getGameTime(), weapon.id())) {
-                    debug(player, action, hand, identity, "同一 tick 窗口内已由命中事件处理 → 去重跳过");
+                    debug(player, action, hand, identity, "槽位 left 未绑定技能 → 放行原版挥击");
                     return;
                 }
                 debug(player, action, hand, identity, "派发 left → " + def.type());
@@ -167,9 +141,8 @@ public final class InputListener implements Listener {
     /**
      * 右键<b>实体</b>（对着玩家 / 怪物按右键）。
      *
-     * <p>原版这条路径<b>不会</b>触发 {@link PlayerInteractEvent}，所以过去"对着敌人右键"
-     * 是放不出右键技能的 —— 只能对着空气或方块放。这里把它接上，并顺手取消原版实体交互
-     * （否则手持骨头右键狼会当场驯服、拿着钓竿右键会抛钩）。</p>
+     * <p>原版这条路径<b>不会</b>触发 {@link PlayerInteractEvent}，所以需要单独接上，
+     * 并顺手取消原版实体交互（否则手持骨头右键狼会当场驯服、拿着钓竿右键会抛钩）。</p>
      */
     @EventHandler(priority = EventPriority.LOW, ignoreCancelled = false)
     public void onInteractEntity(PlayerInteractEntityEvent event) {
@@ -191,56 +164,17 @@ public final class InputListener implements Listener {
         if (weapon == null) {
             return;
         }
-        if (rightClickTriggersThirdSlot(player)) {
-            debug(player, Action.RIGHT_CLICK_AIR, hand, identity, "右键实体被识别为第三槽触发 → 派发 shift-right");
-            dispatchThirdSlot(player, hand, "右键实体（第三槽触发）");
-            return;
-        }
         if (!claimRightClick(player)) {
             debug(player, Action.RIGHT_CLICK_AIR, hand, identity, "同一次右键已派发过 → 去重跳过");
             return;
         }
-        PlayerProfile profile = plugin.config().characters().profile(player.getUniqueId());
-        String mode = profile.mode(weapon.id(), weapon.defaultMode());
-        SkillDef def = weapon.skill(SkillSlot.RIGHT, mode);
+        SkillDef def = weapon.skill(SkillSlot.RIGHT);
         if (!def.isPresent()) {
             debug(player, Action.RIGHT_CLICK_AIR, hand, identity, "槽位 right 未绑定技能 → 不派发");
             return;
         }
         debug(player, Action.RIGHT_CLICK_AIR, hand, identity, "派发 right（右键实体）→ " + def.type());
         plugin.skills().dispatch(player, hand, SkillSlot.RIGHT, true);
-    }
-
-    /**
-     * 这次右键是不是"第三槽"的触发动作。
-     *
-     * <p>两种判定，都会顺手更新计时：</p>
-     * <ul>
-     *   <li>{@code sneak-right}：潜行状态下右键（原版对着方块时不发事件，所以只有右键空气可靠）；</li>
-     *   <li>{@code double-right}：与上一次右键相隔 100~300 毫秒 —— 第二次右键改派第三槽，
-     *       于是"先被右键占用"这件事从根上不会发生。</li>
-     * </ul>
-     */
-    private boolean rightClickTriggersThirdSlot(Player player) {
-        Set<ThirdSlotTrigger> triggers = triggers();
-        if (triggers.contains(ThirdSlotTrigger.SNEAK_RIGHT) && player.isSneaking()) {
-            lastRightClick.remove(player.getUniqueId());
-            return true;
-        }
-        if (!triggers.contains(ThirdSlotTrigger.DOUBLE_RIGHT)) {
-            return false;
-        }
-        long now = System.currentTimeMillis();
-        Long last = lastRightClick.put(player.getUniqueId(), now);
-        if (last == null) {
-            return false;
-        }
-        long gap = now - last;
-        if (gap >= DOUBLE_TAP_MIN_MILLIS && gap <= DOUBLE_TAP_MAX_MILLIS) {
-            lastRightClick.remove(player.getUniqueId());
-            return true;
-        }
-        return false;
     }
 
     /** 这次右键点的是不是本房间的战国铜钟；不是就按原逻辑派发技能。 */
@@ -259,19 +193,19 @@ public final class InputListener implements Listener {
         return last == null || last != tick;
     }
 
-    // ---------------------------------------------------------------- 潜行键（双击 = 第三槽）
+    // ---------------------------------------------------------------- 潜行键（双击 = 移动技能）
 
     /**
-     * 双击潜行键 → 第三槽技能。
+     * 双击潜行键 → 第三槽（移动技能）。
      *
-     * <p>潜行是独立按键，原版<b>一定</b>会发出这个事件，所以它比 F 键与潜行+右键都可靠。
-     * 只有 300 毫秒内的两次"开始潜行"才算双击，正常按住潜行不会误触发。</p>
+     * <p>潜行是独立按键，原版<b>一定</b>会发出这个事件；只有 300 毫秒内的两次
+     * "开始潜行"才算双击，正常按住潜行不会误触发。</p>
      */
     @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = false)
     public void onToggleSneak(PlayerToggleSneakEvent event) {
         Player player = event.getPlayer();
         trace(player, "潜行切换 → " + (event.isSneaking() ? "开始潜行" : "结束潜行"));
-        if (!triggers().contains(ThirdSlotTrigger.DOUBLE_SNEAK) || !event.isSneaking()) {
+        if (!event.isSneaking()) {
             return;
         }
         long now = System.currentTimeMillis();
@@ -281,7 +215,7 @@ public final class InputListener implements Listener {
             // 只在手持插件武器时提示，平时蹲墙角不刷屏。
             if (plugin.items().read(player.getInventory().getItemInMainHand()) != null) {
                 plugin.fx().actionBar(player, net.kyori.adventure.text.minimessage.MiniMessage.miniMessage()
-                        .deserialize("<dark_gray>再按一次潜行 → 第三槽技能"));
+                        .deserialize("<dark_gray>再按一次潜行 → 移动技能"));
             }
             return;
         }
@@ -290,22 +224,24 @@ public final class InputListener implements Listener {
             return;
         }
         lastSneakStart.remove(player.getUniqueId());
-        dispatchThirdSlot(player, player.getInventory().getItemInMainHand(), "双击潜行");
+        dispatchSneak(player, player.getInventory().getItemInMainHand(), "双击潜行");
     }
 
     /** 玩家退出时清掉按键状态，避免 UUID 泄漏。 */
     @EventHandler
     public void onQuit(PlayerQuitEvent event) {
         UUID uuid = event.getPlayer().getUniqueId();
-        lastRightClick.remove(uuid);
         lastSneakStart.remove(uuid);
         lastRightDispatch.remove(uuid);
         traces.remove(uuid);
     }
 
-    // ---------------------------------------------------------------- Q 键
+    // ---------------------------------------------------------------- Q 键（仅战国必杀 / 切武器）
 
-    /** Q 键：原版是"丢弃物品"，这里统一拦截并按配置转成模式切换 / 第三槽技能。 */
+    /**
+     * Q 键：原版是"丢弃物品"，这里只保留两件事——战国能量满时放必杀、以及
+     * {@code q-mode: held-slot} 时切到下一件武器。技能槽位不再占用 Q。
+     */
     // ignoreCancelled = false：别的插件即使先取消了丢弃事件，Q 键也要照常工作
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = false)
     public void onDrop(PlayerDropItemEvent event) {
@@ -320,34 +256,16 @@ public final class InputListener implements Listener {
         }
 
         if (plugin.config().allowDrop()) {
-            logDrop(player, dropped, identity, "allow-drop=true → 允许丢弃，不触发 Q 技能");
+            logDrop(player, dropped, identity, "allow-drop=true → 允许丢弃，不触发任何技能");
             return;
         }
         event.setCancelled(true);
 
-        // 战国模式：能量满时 Q 优先释放必杀技。
-        // 必须在潜行-Q 第三槽与 q-mode 分支【之前】——否则配了 sneak-q 触发时，
-        // 满能量玩家的"潜行+Q"永远出第三槽而不是必杀，配成 none / held-slot 时必杀会被整个吃掉。
-        // 能量没满时 tryUltimate 直接返回 false，Q 完全走原有逻辑。
-        // ultimate-slot 配成 q 以外的值时本接管点整体不生效（当前唯一支持的触发键就是 Q）。
+        // 战国模式：能量满时 Q 优先释放必杀技
         var sengokuRoom = plugin.rooms().roomOf(player);
         if (sengokuRoom != null && sengokuRoom.isSengoku()
                 && plugin.config().energyRules().usesQSlot()
                 && sengokuRoom.energy().tryUltimate(player)) {
-            return;
-        }
-
-        // 潜行 + Q → 第三槽技能（q 槽留给模式切换，用潜行区分）
-        if (triggers().contains(ThirdSlotTrigger.SNEAK_Q) && player.isSneaking()) {
-            logDrop(player, dropped, identity, "潜行 + Q → 派发第三槽技能");
-            plugin.scheduler().runLater(() -> {
-                if (!player.isOnline()) {
-                    return;
-                }
-                ItemStack hand = player.getInventory().getItemInMainHand();
-                ItemStack source = plugin.items().read(hand) != null ? hand : dropped;
-                dispatchThirdSlot(player, source, "潜行 + Q");
-            }, 1L);
             return;
         }
 
@@ -357,23 +275,9 @@ public final class InputListener implements Listener {
             return;
         }
         if ("held-slot".equalsIgnoreCase(qMode)) {
-            // 同样延后：此刻主手是空的，切槽扫描会漏掉被丢的那一格
+            // 延后 1 tick：此刻主手是空的，切槽扫描会漏掉被丢的那一格
             plugin.scheduler().runLater(() -> switchToNextWeapon(player), 1L);
-            return;
         }
-
-        // 关键：PlayerDropItemEvent 触发时物品已经从物品栏移除（取消丢弃后会在本 tick 末恢复），
-        // 所以此刻 getItemInMainHand() 已经不是这把武器 —— 直接拿它派发只会得到
-        // "主手物品没有 weapon_id"。延后 1 tick 执行，届时主手已恢复；
-        // 万一没恢复就退回事件里的物品快照（身份一定是正确的）。
-        plugin.scheduler().runLater(() -> {
-            if (!player.isOnline()) {
-                return;
-            }
-            ItemStack hand = player.getInventory().getItemInMainHand();
-            ItemStack source = plugin.items().read(hand) != null ? hand : dropped;
-            plugin.skills().dispatch(player, source, SkillSlot.Q, true);
-        }, 1L);
     }
 
     /**
@@ -394,13 +298,8 @@ public final class InputListener implements Listener {
     // ---------------------------------------------------------------- F 键
 
     /**
-     * F 键（交换副手）：可选地触发第三槽技能，同时永远不允许把插件武器换到副手
-     * （副手会形成第二条技能通路）。
-     *
-     * <p>用 <b>LOWEST 优先级 + ignoreCancelled=false</b>，只要事件到达就一定拿到；
-     * 但<b>有些服务器/插件会让这个事件根本不到达</b>（表现：按 F 毫无反应，
-     * 连 debug 日志都没有）。所以默认触发方式已经换成双击潜行，
-     * F 键要显式写进 <code>input.shift-right-trigger</code> 才生效。</p>
+     * F 键（交换副手）：只用于拦截"把插件武器换到副手"（副手会形成第二条技能通路），
+     * 不再触发任何技能——第三槽固定为双击潜行。
      */
     @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = false)
     public void onSwapHands(PlayerSwapHandItemsEvent event) {
@@ -408,38 +307,25 @@ public final class InputListener implements Listener {
         boolean mainIsWeapon = plugin.items().isPluginWeapon(event.getMainHandItem());
         boolean offIsWeapon = plugin.items().isPluginWeapon(event.getOffHandItem());
         trace(player, "F 键（交换副手）主手武器=" + mainIsWeapon + " 副手武器=" + offIsWeapon);
-        if (plugin.config().debug()) {
-            plugin.getLogger().info("[input] " + player.getName() + " F 键事件到达（主手武器="
-                    + mainIsWeapon + " 副手武器=" + offIsWeapon + " 触发方式="
-                    + ThirdSlotTrigger.join(triggers()) + "）");
-        }
         if (!mainIsWeapon && !offIsWeapon) {
             return;
         }
         event.setCancelled(true);
-
-        if (!triggers().contains(ThirdSlotTrigger.F)) {
-            if (plugin.config().debug()) {
-                plugin.getLogger().info("[input] " + player.getName()
-                        + " F 键只拦截副手交换（第三槽触发方式里没有 f）");
-            }
-            return;
+        if (plugin.config().debug()) {
+            plugin.getLogger().info("[input] " + player.getName()
+                    + " F 键已拦截（插件武器不能换到副手；移动技能请双击潜行）");
         }
-        dispatchThirdSlot(player, event.getMainHandItem(), "F 键");
     }
 
     // ---------------------------------------------------------------- 公共派发
 
-    /**
-     * 派发第三槽技能。所有触发方式（双击潜行 / 潜行 + Q / 双击右键 / F / 潜行右键）
-     * 都走这里，保证"取消原版行为 + 冷却 + 附加增益"的行为完全一致。
-     */
-    private void dispatchThirdSlot(Player player, ItemStack hand, String via) {
+    /** 派发第三槽（双击潜行）的移动技能。 */
+    private void dispatchSneak(Player player, ItemStack hand, String via) {
         ItemFactory.Identity identity = plugin.items().read(hand);
         if (identity == null) {
             if (plugin.config().debug()) {
                 plugin.getLogger().info("[input] " + player.getName() + " " + via
-                        + "：主手不是插件武器 → 不派发第三槽");
+                        + "：主手不是插件武器 → 不派发移动技能");
             }
             return;
         }
@@ -447,25 +333,19 @@ public final class InputListener implements Listener {
         if (weapon == null) {
             return;
         }
-        PlayerProfile profile = plugin.config().characters().profile(player.getUniqueId());
-        String mode = profile.mode(weapon.id(), weapon.defaultMode());
-        SkillDef def = weapon.skill(SkillSlot.SHIFT_RIGHT, mode);
+        SkillDef def = weapon.skill(SkillSlot.SNEAK);
         if (!def.isPresent()) {
             if (plugin.config().debug()) {
                 plugin.getLogger().info("[input] " + player.getName() + " " + via
-                        + "：shift-right 槽未绑定技能 → 不派发");
+                        + "：sneak 槽未绑定技能 → 不派发");
             }
             return;
         }
         if (plugin.config().debug()) {
             plugin.getLogger().info("[input] " + player.getName() + " " + via
-                    + " 派发 shift-right → " + def.type());
+                    + " 派发 sneak → " + def.type());
         }
-        plugin.skills().dispatch(player, hand, SkillSlot.SHIFT_RIGHT, true);
-    }
-
-    private Set<ThirdSlotTrigger> triggers() {
-        return plugin.config().thirdSlotTriggers();
+        plugin.skills().dispatch(player, hand, SkillSlot.SNEAK, true);
     }
 
     /** 把选中槽切到下一件本角色武器（q-mode: held-slot）。 */

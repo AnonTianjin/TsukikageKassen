@@ -180,6 +180,18 @@ public final class YamlDataStore implements DataStore {
     }
 
     @Override
+    public int removeStats(UUID uuid) {
+        if (uuid == null) {
+            return 0;
+        }
+        // 读全量 → 去掉这一行 → 整体写回：YAML 本来就是这个写模型，迁移是低频操作
+        Map<UUID, Map<String, Long>> all = loadStats();
+        Map<String, Long> removed = all.remove(uuid);
+        saveStats(all);
+        return removed == null ? 0 : removed.size();
+    }
+
+    @Override
     public void close() {
         saveAll();
     }

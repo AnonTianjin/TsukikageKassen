@@ -8,10 +8,10 @@ import org.bukkit.entity.Player;
 import com.taketori.kassen.TaketoriPlugin;
 
 /**
- * 一次技能调用的上下文：谁、拿什么、按下哪个键、当前什么模式、数值是多少。
+ * 一次技能调用的上下文：谁、拿什么、按下哪个键、数值是多少。
  *
  * <p>技能实现只依赖这个上下文，不自己去读 PDC、不自己判冷却——那些都在
- * InputManager / SkillManager 里完成，保证"输入 → 身份 → 技能"的单一通路。</p>
+ * InputListener / SkillManager 里完成，保证"输入 → 身份 → 技能"的单一通路。</p>
  */
 public final class SkillContext {
 
@@ -20,15 +20,13 @@ public final class SkillContext {
     private final WeaponDef weapon;
     private final SkillSlot slot;
     private final SkillDef def;
-    private final String mode;
 
-    public SkillContext(TaketoriPlugin plugin, Player player, WeaponDef weapon, SkillSlot slot, SkillDef def, String mode) {
+    public SkillContext(TaketoriPlugin plugin, Player player, WeaponDef weapon, SkillSlot slot, SkillDef def) {
         this.plugin = plugin;
         this.player = player;
         this.weapon = weapon;
         this.slot = slot;
         this.def = def;
-        this.mode = mode;
     }
 
     public TaketoriPlugin plugin() {
@@ -49,10 +47,6 @@ public final class SkillContext {
 
     public SkillDef def() {
         return def;
-    }
-
-    public String mode() {
-        return mode;
     }
 
     /** 技能显示名：优先取 params.display，否则用类型名。 */

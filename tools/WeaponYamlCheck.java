@@ -36,12 +36,22 @@ public final class WeaponYamlCheck {
 
     private static final Set<String> SKILL_TYPES = Set.of(
             "melee_smash", "projectile", "shockwave", "rocket_jump", "pull", "reflect",
-            "self_boost", "blink", "grapple", "special_shot_toggle", "shield_guard",
-            "mirror_skill", "mirror_burst", "mode_switch", "equip_switch",
+            "self_boost", "blink", "grapple", "shield_guard",
+            "mirror_skill", "mirror_burst",
             // 2.0 版新增：易伤施加 / 破甲 / 兑现 / 场地 / 召唤
             "mark_apply", "armor_break", "echo_consume", "deploy_zone", "summon_ally");
 
-    private static final Set<String> SLOTS = Set.of("left", "right", "shift-right", "q");
+    /** 2.0 三槽：左键 / 右键 / 双击潜行。 */
+    private static final Set<String> SLOTS = Set.of("left", "right", "sneak");
+
+    /** sneak 槽只允许移动类。 */
+    private static final Set<String> MOVE_TYPES = Set.of("self_boost", "blink", "rocket_jump", "grapple");
+
+    /** 右键可以留空的材质（原版拉弓 / 原版投掷）。 */
+    private static final Set<String> VANILLA_RIGHT_MATERIALS = Set.of("BOW", "TRIDENT");
+
+    /** 已下线的键：出现即报错，避免旧配置静默失效。 */
+    private static final Set<String> REMOVED_TOP_KEYS = Set.of("modes", "default-mode");
 
     private static final Map<String, String> PARTICLE_KEYS = Map.of("particle", "particle", "hit-particle", "particle");
     private static final List<String> SOUND_KEYS = List.of("sound", "hit-sound", "miss-sound", "trail-sound");
@@ -142,17 +152,23 @@ public final class WeaponYamlCheck {
                 }
             }
 
-            // top-level slots + every mode's overrides
-            checkSlots(def, weaponId + " <base>", verbose, weaponId);
-            Map<String, Object> modes = asMap(def.get("modes"));
-            String defaultMode = str(def.get("default-mode"));
-            if (!modes.isEmpty() && (defaultMode == null || !modes.containsKey(defaultMode))) {
-                problems.add("weapons.yml [" + weaponId + "]: default-mode '" + defaultMode + "' has no matching entry in modes");
+            // 旧键必须点名：silently 失效比报错更难查
+            for (String removed : REMOVED_TOP_KEYS) {
+                if (def.containsKey(removed)) {
+                    problems.add("weapons.yml [" + weaponId + "]: `" + removed
+                            + ":` 已下线（2.0 每把武器只有一套三个技能）");
+                }
             }
-            for (Map.Entry<String, Object> mode : modes.entrySet()) {
-                Map<String, Object> modeDef = asMap(mode.getValue());
-                checkSlots(modeDef, weaponId + " mode=" + mode.getKey(), verbose, weaponId);
+
+            // 被动：顶层 passive 段，type 必须为 passive
+            Map<String, Object> passive = asMap(def.get("passive"));
+            if (!passive.isEmpty()) {
+                checkPassive(passive, weaponId, verbose);
             }
+
+            // 三个按键槽
+            Map<String, Object> skills = asMap(def.get("skills"));
+            checkSlots(skills, weaponId, material, !passive.isEmpty(), verbose);
         }
 
         System.out.println("weapons: " + weaponCount + ", characters: " + characters.size()
@@ -172,12 +188,36 @@ public final class WeaponYamlCheck {
         System.exit(1);
     }
 
-    private static void checkSlots(Map<String, Object> def, String where, boolean verbose, String weaponId) {
-        Map<String, Object> skills = asMap(def.get("skills"));
+    /** 校验一个武器级被动段。 */
+    private static void checkPassive(Map<String, Object> passive, String weaponId, boolean verbose) {
+        String where = "weapons.yml [" + weaponId + "] passive";
+        String type = str(passive.get("type"));
+        if (!"passive".equalsIgnoreCase(type)) {
+            problems.add(where + ": type 必须是 passive（当前 " + type + "）");
+            return;
+        }
+        checkParams("passive", asMap(passive.get("params")), where);
+        if (verbose) {
+            System.out.println("  " + where + " -> passive");
+        }
+    }
+
+    private static void checkSlots(Map<String, Object> skills, String weaponId, String material,
+                                   boolean hasPassive, boolean verbose) {
+        String where = "weapons.yml [" + weaponId + "]";
+        for (String removed : new String[]{"shift-right", "q"}) {
+            if (skills.containsKey(removed)) {
+                problems.add(where + ": `" + removed + ":` 已下线（第三槽改为 sneak，Q 槽随模式一并移除）");
+            }
+        }
+        if (!hasPassive) {
+            problems.add(where + ": 缺少 passive 段（每把武器都应有一个被动）");
+        }
+
         for (Map.Entry<String, Object> slot : skills.entrySet()) {
             String slotKey = slot.getKey();
             if (!SLOTS.contains(slotKey)) {
-                problems.add(where + ": unknown slot '" + slotKey + "' (expected left/right/shift-right/q)");
+                problems.add(where + ": unknown slot '" + slotKey + "' (expected left/right/sneak)");
                 continue;
             }
             Map<String, Object> skill = asMap(slot.getValue());
@@ -186,40 +226,65 @@ public final class WeaponYamlCheck {
                 problems.add(where + " " + slotKey + ": missing `type:`");
                 continue;
             }
-            if (!SKILL_TYPES.contains(type.toLowerCase(Locale.ROOT))) {
+            String normalizedType = type.toLowerCase(Locale.ROOT);
+            if ("passive".equals(normalizedType)) {
+                problems.add(where + " " + slotKey + ": 被动必须写在顶层 passive: 段，不能占用按键槽位");
+                continue;
+            }
+            if (!SKILL_TYPES.contains(normalizedType)) {
                 problems.add(where + " " + slotKey + ": unregistered skill type " + type);
                 continue;
             }
+            if ("sneak".equals(slotKey) && !MOVE_TYPES.contains(normalizedType)) {
+                problems.add(where + " sneak: 只允许移动类技能（" + String.join(" / ", MOVE_TYPES)
+                        + "），当前是 " + type);
+            }
             skillCount++;
             bindingCount.merge(weaponId + "/" + type, 1, Integer::sum);
-            Map<String, Object> params = asMap(skill.get("params"));
-            Set<String> allowed = allowedParams.getOrDefault(type.toLowerCase(Locale.ROOT), Set.of());
-            for (Map.Entry<String, Object> param : params.entrySet()) {
-                String key = param.getKey();
-                if (!allowed.contains(key)) {
-                    problems.add(where + " " + slotKey + " (" + type + "): unknown param '" + key + "'");
-                    continue;
-                }
-                Object value = param.getValue();
-                if (value == null) {
-                    continue;
-                }
-                String text = String.valueOf(value);
-                if (PARTICLE_KEYS.containsKey(key) && !particleNames.contains(normalize(text))) {
-                    problems.add(where + " " + slotKey + " (" + type + "): particle does not resolve: " + text);
-                }
-                if (SOUND_KEYS.contains(key) && !soundNames.contains(normalize(text))) {
-                    problems.add(where + " " + slotKey + " (" + type + "): sound does not resolve: " + text);
-                }
-                if (POTION_KEYS.contains(key) && !potionNames.contains(normalize(text))) {
-                    problems.add(where + " " + slotKey + " (" + type + "): potion effect does not resolve: " + text);
-                }
-                if ("projectile".equals(key) && !entityTypeResolves(text)) {
-                    problems.add(where + " " + slotKey + " (" + type + "): projectile does not resolve: " + text);
-                }
-            }
+            checkParams(normalizedType, asMap(skill.get("params")), where + " " + slotKey + " (" + type + ")");
             if (verbose) {
                 System.out.println("  " + where + " " + slotKey + " -> " + type);
+            }
+        }
+
+        String upperMaterial = material == null ? "" : material.toUpperCase(Locale.ROOT);
+        boolean bow = "BOW".equals(upperMaterial);
+        if (bow && !skills.containsKey("left")) {
+            problems.add(where + ": 弓没有近战普攻，必须在 left 绑定主动技能");
+        }
+        if (!skills.containsKey("right") && !VANILLA_RIGHT_MATERIALS.contains(upperMaterial)) {
+            problems.add(where + ": right 缺失只允许 " + String.join("/", VANILLA_RIGHT_MATERIALS)
+                    + "（留空表示走原版行为），当前材质 " + upperMaterial);
+        }
+        if (skills.size() > 3) {
+            problems.add(where + ": 一把武器最多三个技能，当前 " + skills.size() + " 个");
+        }
+    }
+
+    private static void checkParams(String type, Map<String, Object> params, String where) {
+        Set<String> allowed = allowedParams.getOrDefault(type, Set.of());
+        for (Map.Entry<String, Object> param : params.entrySet()) {
+            String key = param.getKey();
+            if (!allowed.contains(key)) {
+                problems.add(where + ": unknown param '" + key + "'");
+                continue;
+            }
+            Object value = param.getValue();
+            if (value == null) {
+                continue;
+            }
+            String text = String.valueOf(value);
+            if (PARTICLE_KEYS.containsKey(key) && !particleNames.contains(normalize(text))) {
+                problems.add(where + ": particle does not resolve: " + text);
+            }
+            if (SOUND_KEYS.contains(key) && !soundNames.contains(normalize(text))) {
+                problems.add(where + ": sound does not resolve: " + text);
+            }
+            if (POTION_KEYS.contains(key) && !potionNames.contains(normalize(text))) {
+                problems.add(where + ": potion effect does not resolve: " + text);
+            }
+            if ("projectile".equals(key) && !entityTypeResolves(text)) {
+                problems.add(where + ": projectile does not resolve: " + text);
             }
         }
     }

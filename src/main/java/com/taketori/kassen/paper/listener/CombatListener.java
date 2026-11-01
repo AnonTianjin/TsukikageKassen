@@ -87,42 +87,15 @@ public final class CombatListener implements Listener {
             reflectMelee(victim, player, event);
         }
 
-        ItemStack hand = player.getInventory().getItemInMainHand();
-        ItemFactory.Identity identity = plugin.items().read(hand);
+        // 2.0：近战武器的左键一律走原版普攻，不再取消伤害、也不再派发技能。
+        // 被动（易伤 / 破甲 / 减速 / 吸血 / 附加伤害）由 PassiveListener 在 MONITOR 阶段结算，
+        // 因此这里只保留"这是插件武器"的诊断日志。
+        ItemFactory.Identity identity = plugin.items().read(player.getInventory().getItemInMainHand());
         if (identity == null) {
             debug("└ 主手不是插件武器 → 保留原版近战");
             return;
         }
-        WeaponDef weapon = plugin.config().weapons().get(identity.weaponId());
-        if (weapon == null) {
-            debug("└ weapon_id=" + identity.weaponId() + " 未定义 → 保留原版近战");
-            return;
-        }
-        PlayerProfile profile = plugin.config().characters().profile(player.getUniqueId());
-        String mode = profile.mode(weapon.id(), weapon.defaultMode());
-        SkillDef skill = weapon.skill(SkillSlot.LEFT, mode);
-        if (!skill.isPresent()) {
-            debug("└ " + weapon.id() + " 的 left 槽未绑定技能 → 保留原版近战");
-            return;
-        }
-
-        // 蓄力门控（C10）：不满蓄的挥击保留原版轻击伤害，不再"挥了完全没反应"——奖励攻击节奏
-        float attackCharge = player.getAttackCooldown();
-        double chargeGate = plugin.config().meleeChargeGate();
-        // 与技能自身的 min-charge 取较高门槛：否则当 charge 落在 [chargeGate, min-charge) 区间时，
-        // 原版伤害已被取消、dispatch 进去技能又返回 NO_TARGET（无冷却无伤害），玩家白挥一击。
-        // 统一门槛保证"事件被取消"时技能必然 SUCCESS（charge 同时满足两套门槛）。
-        double skillMinCharge = skill.dbl("min-charge", 0.9D);
-        double effectiveGate = Math.max(chargeGate, skillMinCharge);
-        if (effectiveGate > 0.0D && attackCharge < effectiveGate) {
-            debug(String.format("└ 蓄力 %.2f < %.2f → 保留原版轻击", attackCharge, effectiveGate));
-            return;
-        }
-
-        event.setCancelled(true);
-        profile.markSwing(player.getWorld().getGameTime(), weapon.id());
-        debug("└ 已取消原版伤害，改由技能 " + skill.type() + " 结算（mode=" + mode + "）");
-        plugin.skills().dispatch(player, hand, SkillSlot.LEFT, true);
+        debug("└ 原版近战照常结算（被动由 PassiveListener 附加）weapon=" + identity.weaponId());
     }
 
     /**
@@ -331,8 +304,7 @@ public final class CombatListener implements Listener {
         if (weapon == null) {
             return;
         }
-        double damageMultiplier = tagArrow(player, weapon, event.getProjectile());
-        scheduleVolley(player, weapon, event.getProjectile().getVelocity().clone(), damageMultiplier);
+        tagProjectile(event.getProjectile(), weapon);
     }
 
     /**
@@ -376,8 +348,7 @@ public final class CombatListener implements Listener {
         // 按满蓄力箭的速度补射（原版满蓄约 3.0），方向取视线
         Arrow arrow = player.launchProjectile(Arrow.class,
                 player.getEyeLocation().getDirection().multiply(3.0D));
-        double damageMultiplier = tagArrow(player, weapon, arrow);
-        scheduleVolley(player, weapon, arrow.getVelocity().clone(), damageMultiplier);
+        tagProjectile(arrow, weapon);
         debug("└ 无箭射击：背包里没有箭，按插件弓规则补射一支");
     }
 
@@ -399,108 +370,17 @@ public final class CombatListener implements Listener {
     }
 
     /**
-     * 把这一箭的附加效果写到箭上：命中减益（所有箭都吃）+ 特殊射击强化（速度 / 伤害 / 易伤 / 范围）。
+     * 把来源武器 id 与命中减益名单写到弹体上。
      *
-     * @return 伤害倍率，供三连射的后续箭矢继承
+     * <p>来源 id 是必要的：三叉戟脱手后主手为空，命中时读不到物品，被动就无从取起。</p>
      */
-    private double tagArrow(Player player, WeaponDef weapon, Entity projectile) {
-        PlayerProfile profile = plugin.config().characters().profile(player.getUniqueId());
-        String mode = profile.mode(weapon.id(), weapon.defaultMode());
-        SkillDef def = weapon.skill(SkillSlot.SHIFT_RIGHT, mode);
-
-        debug(String.format("%s 射箭 weapon=%s mode=%s 特殊射击开关=%s shift-right绑定=%s",
-                player.getName(), weapon.id(), mode, profile.specialShot(), def.isPresent()));
-
-        // ③ 命中附加效果：把"随机负面效果"的名单写到箭上，命中时才抽签（夕月的压制手段）
-        //    这一条与特殊射击、三连射都无关，所以放在最前面，普通箭也吃得到
+    private void tagProjectile(Entity projectile, WeaponDef weapon) {
+        if (projectile == null || weapon == null) {
+            return;
+        }
+        projectile.getPersistentDataContainer()
+                .set(PDCKeys.projWeaponId(), PersistentDataType.STRING, weapon.id());
         tagArrowDebuffs(projectile, weapon);
-
-        // ① 特殊射击：需要 shift-right 绑定技能 + 开关已开
-        if (def.isPresent() && profile.specialShot()) {
-            double speedMultiplier = def.dbl("speed-multiplier", 1.15D);
-            double damageMultiplier = def.dbl("damage-multiplier", 1.5D);
-            projectile.setVelocity(projectile.getVelocity().multiply(speedMultiplier));
-
-            var pdc = projectile.getPersistentDataContainer();
-            pdc.set(PDCKeys.arrowMultiplier(), PersistentDataType.DOUBLE, damageMultiplier);
-
-            double markBonus = def.dbl("mark-bonus", 0.0D);
-            if (markBonus > 0.0D) {
-                pdc.set(PDCKeys.arrowMarkBonus(), PersistentDataType.DOUBLE, markBonus);
-                pdc.set(PDCKeys.arrowMarkTicks(), PersistentDataType.INTEGER, def.integer("mark-ticks", 100));
-            }
-            double hitRadius = def.dbl("hit-radius", 0.0D);
-            if (hitRadius > 0.0D) {
-                pdc.set(PDCKeys.arrowHitRadius(), PersistentDataType.DOUBLE, hitRadius);
-                pdc.set(PDCKeys.arrowHitRatio(), PersistentDataType.DOUBLE, def.dbl("hit-radius-ratio", 0.3D));
-            }
-
-            plugin.fx().particle(def.str("particle", "CRIT"), projectile.getLocation(), 20, 0.3D);
-            plugin.fx().sound(def.str("sound", "BLOCK_BEACON_ACTIVATE"), player, 0.8F, 1.6F);
-            // 飞行拖尾：让"这一箭被强化了"肉眼可辨（否则玩家感觉不到特殊射击生效）
-            startTrail(projectile, def.str("trail-particle", "CRIT"));
-
-            debug(String.format("└ 特殊射击生效：速度 ×%.2f 伤害 ×%.2f 易伤 +%.0f%% 命中半径 %.1f",
-                    speedMultiplier, damageMultiplier, markBonus * 100.0D, hitRadius));
-            return damageMultiplier;
-        }
-        return 1.0D;
-    }
-
-    /** ② 三连射：只看模式，与 shift-right 是否绑定无关。 */
-    private void scheduleVolley(Player player, WeaponDef weapon, Vector base, double damageMultiplier) {
-        PlayerProfile profile = plugin.config().characters().profile(player.getUniqueId());
-        String mode = profile.mode(weapon.id(), weapon.defaultMode());
-        int extraArrows = "VOLLEY".equalsIgnoreCase(mode) ? VOLLEY_EXTRA_ARROWS : 0;
-        if (extraArrows <= 0) {
-            return;
-        }
-        SkillDef def = weapon.skill(SkillSlot.SHIFT_RIGHT, mode);
-        // 间隔连发 + 微小散布：同一 tick 同向发射的话三支箭完全重叠，看起来只有一支
-        int interval = Math.max(0, def.isPresent() ? def.integer("volley-interval", 2) : 2);
-        double spreadDegrees = Math.max(0.0D, def.isPresent() ? def.dbl("volley-spread", 1.5D) : 1.5D);
-        double multiplier = damageMultiplier;
-
-        for (int i = 1; i <= extraArrows; i++) {
-            final int index = i;
-            plugin.scheduler().runLater(() -> {
-                if (!player.isOnline() || player.isDead()) {
-                    return;
-                }
-                Vector direction = spreadDegrees <= 0.0D
-                        ? base.clone()
-                        : rotateAroundY(base, Math.toRadians(spreadDegrees * index) * (index % 2 == 0 ? -1.0D : 1.0D));
-                Arrow arrow = player.launchProjectile(Arrow.class, direction);
-                if (multiplier > 1.0D) {
-                    arrow.getPersistentDataContainer()
-                            .set(PDCKeys.arrowMultiplier(), PersistentDataType.DOUBLE, multiplier);
-                }
-                // 三连射的每一支箭同样带上命中附加效果
-                tagArrowDebuffs(arrow, weapon);
-                debug("└ 三连射第 " + index + " 支箭（延迟 " + (interval * index) + " tick，散布 " + spreadDegrees + "°）");
-            }, (long) interval * i);
-        }
-        debug("└ 三连射：额外发射 " + extraArrows + " 支箭");
-        plugin.fx().sound("ITEM_CROSSBOW_SHOOT", player, 0.8F, 1.1F);
-    }
-
-    /** 特殊射击的飞行拖尾：每 2 tick 在箭的位置生成粒子，箭消失后自行结束。 */
-    private void startTrail(Entity projectile, String particle) {
-        if (particle == null || particle.isBlank()) {
-            return;
-        }
-        final BukkitTask[] holder = new BukkitTask[1];
-        final int[] elapsed = {0};
-        holder[0] = plugin.scheduler().runTimerTask(() -> {
-            elapsed[0]++;
-            if (elapsed[0] > 120 || !(projectile instanceof Arrow arrow) || arrow.isDead() || !arrow.isValid()) {
-                if (holder[0] != null) {
-                    holder[0].cancel();
-                }
-                return;
-            }
-            plugin.fx().particle(particle, arrow.getLocation(), 3, 0.08D);
-        }, 0L, 2L);
     }
 
     /** 被强化的箭矢命中：按倍率结算伤害、打易伤标记、并对周围造成范围伤害。 */

@@ -19,7 +19,7 @@ import java.util.Set;
  * 配置校验：启动与 reload 时执行，把"写错了但不会崩"的问题直接列出来。
  *
  * <p>它检查的是最容易静默出错的东西：粒子名/音效名拼错、参数键拼错、
- * 技能类型未注册、弹体类型不存在、equip_switch 指向不存在的武器、
+ * 技能类型未注册、弹体类型不存在、
  * 以及明显不合理的数值（例如一招秒全场的伤害）。</p>
  */
 public final class ConfigValidator {
@@ -55,9 +55,11 @@ public final class ConfigValidator {
                     "reserve-damage", "reserve-radius", "reserve-slow-duration", "reserve-slow-amplifier",
                     "reserve-particle", "particle", "sound", "display")),
             Map.entry("grapple", Set.of("range", "power", "upward", "particle", "sound", "display")),
-            Map.entry("special_shot_toggle", Set.of("damage-multiplier", "speed-multiplier",
-                    "volley-spread", "volley-interval", "mark-bonus", "mark-ticks",
-                    "hit-radius", "hit-radius-ratio", "particle", "trail-particle", "sound", "display")),
+            // 被动（2.0）：武器级 passive 段，不占按键槽位
+            Map.entry("passive", Set.of("display", "on-hit", "chance", "throw-chance",
+                    "mark-bonus", "pierce", "ticks", "slow-duration", "slow-amplifier",
+                    "lifesteal", "bonus-damage", "speed", "resistance", "jump",
+                    "particle", "sound")),
             Map.entry("shield_guard", Set.of("duration-ticks", "resistance-amplifier", "absorption",
                     "reflect-ratio", "self-slow-amplifier", "self-slow-ticks",
                     "ally-radius", "ally-absorption", "ally-resistance-amplifier", "armor-pierce",
@@ -65,8 +67,6 @@ public final class ConfigValidator {
             Map.entry("mirror_skill", Set.of("duration-ticks", "absorption", "reflect-ratio", "particle", "sound", "display")),
             Map.entry("mirror_burst", Set.of("radius", "damage", "slow-duration", "slow-amplifier",
                     "blindness-ticks", "echo-bonus", "particle", "sound", "display")),
-            Map.entry("mode_switch", Set.of("particle", "sound", "display")),
-            Map.entry("equip_switch", Set.of("target", "sound", "display")),
             // ---- 2.0 版新增的五个类型 ----
             Map.entry("mark_apply", Set.of("damage", "radius", "angle", "mark-bonus", "mark-ticks",
                     "invisible-ticks", "slow-duration", "slow-amplifier", "slow-type",
@@ -170,12 +170,11 @@ public final class ConfigValidator {
                     + "（当前 " + cooldownDisplay + "，冷却提示将完全不显示）");
         }
 
-        // input.shift-right-trigger 里的未知写法：parse 会回落到默认 double-sneak（不会完全失效），
-        // 但未知 token 说明管理员可能写错了键名，点名出来便于修正。
-        String trigger = cfg.getString("input.shift-right-trigger", "double-sneak");
-        for (String token : ThirdSlotTrigger.unknownTokens(trigger)) {
-            problems.add("config.yml: input.shift-right-trigger 里不认识 \"" + token
-                    + "\"（可用 double-sneak / sneak-q / double-right / f / sneak-right / all / both）");
+        // 2.0：第三槽只保留双击潜行，旧写法不再生效，但按双击潜行处理并点名，避免服务器起不来
+        String trigger = cfg.getString("input.shift-right-trigger", ThirdSlotTrigger.DOUBLE_SNEAK);
+        if (ThirdSlotTrigger.isRemoved(trigger)) {
+            problems.add("config.yml: input.shift-right-trigger 的旧写法 \"" + trigger
+                    + "\" 已下线（2.0 固定为 double-sneak 双击潜行），当前按双击潜行处理");
         }
     }
 
@@ -192,26 +191,42 @@ public final class ConfigValidator {
             }
         }
 
-        // default-mode 必须真的存在于 modes：写错的话 WeaponDef.skill(mode) 会静默回退
-        // 武器级技能，表现为"所有模式都出基础技能"，玩家没有任何报错可看
-        if (!weapon.modes().isEmpty() && !weapon.modes().containsKey(weapon.defaultMode())) {
-            problems.add(where + " default-mode \"" + weapon.defaultMode()
-                    + "\" 不在 modes 里（现有: " + String.join("、", weapon.modes().keySet()) + "）");
+        // 三个槽位逐个校验；sneak 只允许移动类，写在别的类型上会在这里点名
+        for (SkillSlot slot : SkillSlot.values()) {
+            SkillDef def = weapon.skill(slot);
+            validateSkill(def, where + " " + slot.key(), problems);
+            if (slot == SkillSlot.SNEAK && def.isPresent() && !MOVE_TYPES.contains(def.type())) {
+                problems.add(where + " sneak 槽只能是移动类技能（" + String.join(" / ", MOVE_TYPES)
+                        + "），当前是 " + def.type());
+            }
         }
-
-        Set<String> modes = new LinkedHashSet<>();
-        modes.add(weapon.defaultMode());
-        modes.addAll(weapon.modes().keySet());
-        for (String mode : modes) {
-            String label = (mode == null || mode.isBlank()) ? where : where + " mode=" + mode;
-            for (SkillSlot slot : SkillSlot.values()) {
-                validateSkill(weapon.skill(slot, mode), label + " " + slot.key(), problems);
+        if (weapon.hasPassive()) {
+            if (weapon.passive().onHit() == com.taketori.kassen.core.skill.PassiveDef.OnHit.NONE
+                    && weapon.passive().speed() <= 0.0D
+                    && weapon.passive().resistance() <= 0
+                    && weapon.passive().jump() <= 0) {
+                problems.add(where + " passive 段没有任何生效内容（on-hit / speed / resistance / jump 全空）");
+            }
+        }
+        if (weapon.hasEnchantments()) {
+            for (var entry : weapon.enchantments().entrySet()) {
+                if (entry.getValue() > 3) {
+                    problems.add(where + " enchantments." + entry.getKey() + " 等级 " + entry.getValue()
+                            + " 超过 3（原版上限）");
+                }
             }
         }
     }
 
+    /** sneak 槽允许的移动类技能。 */
+    private static final Set<String> MOVE_TYPES = Set.of("self_boost", "blink", "rocket_jump", "grapple");
+
     private void validateSkill(SkillDef def, String where, List<String> problems) {
         if (def == null || !def.isPresent()) {
+            return;
+        }
+        // 被动不走技能注册表：它由 PassiveListener 结算，类型名固定
+        if (com.taketori.kassen.core.skill.PassiveDef.TYPE.equalsIgnoreCase(def.type())) {
             return;
         }
         if (!plugin.registry().has(def.type())) {
@@ -249,12 +264,6 @@ public final class ConfigValidator {
                 warnIfSuspiciousDamage(def, where, problems);
             }
             case "melee_smash", "mirror_burst" -> warnIfSuspiciousDamage(def, where, problems);
-            case "equip_switch" -> {
-                String target = def.str("target", "");
-                if (target.isBlank() || !plugin.config().weapons().has(target)) {
-                    problems.add(where + " equip_switch 的 target 不存在: " + target);
-                }
-            }
             default -> {
                 // 其余类型没有额外校验
             }

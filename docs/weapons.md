@@ -9,33 +9,67 @@
 ```yaml
 weapons:
   <武器id>:                      # 小写字母数字下划线，绑定角色（character 键）
-    character: tsukuyomi            # 角色 id（characters.yml）
+    character: tsukuyomi         # 角色 id（characters.yml）
     display: '<gold>陨星锤</gold>' # MiniMessage
     material: DIAMOND_SHOVEL     # 原版 Material
     model-data: 0                # CustomModelData，0 = 不设
-    lore: [...]                  # 物品说明
+    lore: [...]                  # 物品说明（建议写清 左键/右键/双击潜行/被动）
     attributes:                  # 原版属性名（连字符写法）
       attack-damage: 16.0
       attack-speed: 1.0
-    default-mode: HAMMER         # 默认 Q 模式（大写，须存在于 modes）
-    modes:
-      <模式名>:                  # 大写；Q 切换在这些模式之间轮转
-        display: '<yellow>重锤模式</yellow>'
-        skills:
-          left:  { type: ..., cooldown: ..., params: {...} }   # 左键
-          right: { type: ..., cooldown: ..., params: {...} }   # 右键
-          # shift-right：第三槽技能（触发方式 config.yml input.shift-right-trigger）
-          # q：模式切换（mode_switch）/ 装备切换（equip_switch）
+    enchantments:                # 可选：物品附魔（如三叉戟的忠诚）
+      loyalty: 3
+    passive:                     # 武器级被动，不占按键槽位
+      type: passive
+      params:
+        display: '陨星之重'
+        speed: 0.05              # 常驻移速 +5%
+        on-hit: armor_break      # 命中触发：mark / armor_break / slow / lifesteal / knockback
+        chance: 0.15             # 近战命中概率
+        pierce: 0.15
+        ticks: 60
+    skills:
+      left:  { type: ..., cooldown: ..., params: {...} }   # 左键：近战留空 = 原版普攻；弓放主动
+      right: { type: ..., cooldown: ..., params: {...} }   # 右键：留空 = 原版拉弓 / 投掷 / 格挡
+      sneak: { type: ..., cooldown: ..., params: {...} }   # 双击潜行：只允许移动类
 ```
 
+- **三槽模型（2.0）**：`left` / `right` / `sneak`，`shift-right`、`q`、`modes`、`default-mode`
+  全部下线；写旧键会在加载时点名报错。
+- **被动**：`passive` 的 `type` 必须是 `passive`；`chance` 是近战概率、`throw-chance` 是
+  箭矢 / 投掷概率（未写时回落到 `chance`）。三叉戟就是靠 `chance: 0.25` + `throw-chance: 1.0`
+  实现"投掷必定霜噬、近战只有 25%"。
+- **sneak 白名单**：只允许 `self_boost` / `blink` / `rocket_jump` / `grapple`，其它类型会被校验拦下。
+- **right 缺失**：只有 `BOW` / `TRIDENT` 允许（走原版拉弓 / 投掷）；弓必须写 `left`。
 - 属性名映射：`attributes` 的键经 `VersionAdapter.attribute()` 解析
   （`attack-damage` → `generic.attack_damage` 等），解析失败会被校验点名；
-- `attack-speed` 与近战手感：左键技能的结算频率由原版攻击冷却驱动，
-  `combat.melee-charge-gate`（默认 0.9）以下的蓄力保留原版轻击；
-- `default-mode`：写错（不存在于 `modes`）时 reload 报错。此前会静默回退
-  武器级技能，1.6.1 起显式校验；
 - 冷却语义：`cooldown` 单位秒，只有 `SkillResult.SUCCESS` 才进冷却：
-  无目标 / 被门控拦下 / 抛异常都不扣。冷却展示见 `feedback.cooldown-display`。
+  无目标 / 抛异常都不扣。冷却展示见 `feedback.cooldown-display`。
+
+## 一·五、2.0 武器一览（三技能 + 被动）
+
+| 武器 | 被动 | 右键（主动） | 双击潜行（移动） |
+| --- | --- | --- | --- |
+| 陨星锤 | 移速 +5% / 15% 破甲 | 砸地冲击 `shockwave` 8s | 火箭跳 `rocket_jump` 6s |
+| 镇魂铃 | 移速 +5% / 20% 易伤 | 月华庇护 `deploy_zone` 22s | 疾行 `self_boost` 8s |
+| 金棒 | 抗性 I / 20% 破甲 | 掷棒 `projectile` 5s | 冲锋 `self_boost` 8s |
+| 大太刀 | 移速 +3% / 25% 减速 II | 斩击波 `projectile` 4s | 瞬步 `blink` 9s |
+| 剑 | 移速 +8% / 20% 易伤 | 剑气 `shockwave` 7s | 高速突进 `self_boost` 7s |
+| 钢丝 | 15% 减速 I | 钢丝牵引 `pull` 6s | 快速位移 `blink` 4s |
+| 苦无 | 移速 +5% / 20% 易伤 | 苦无投掷 `projectile` 7s | 影步 `blink` 8s |
+| 弓 | 箭命中 25% 易伤（左键 = 瞄准射击 `mark_apply` 10s） | —（原版拉弓） | 疾跑 `self_boost` 8s |
+| 短匕 | 移速 +10% / 20% 减速 I | 飞匕 `projectile` 1.2s | 闪身位移 `blink` 9s |
+| 大盾 | 抗性 I / 15% 减速 I | 壁垒 `shield_guard` 22s | 盾冲 `self_boost` 8s |
+| 壁垒令旗 | 抗性 I / 15% 易伤 | 旗阵 `shield_guard` 18s | 冲锋 `self_boost` 8s |
+| 月镜 | 抗性 I / 20% 破甲 | 镜光爆发 `mirror_burst` 12s | 瞬镜 `blink` 8s |
+| 冰棘鱼（三叉戟） | 投掷必定 / 近战 25% 霜噬，+2 点霜冻伤害 | —（原版投掷 + 忠诚 III） | 寒冰滑步 `blink` 9s |
+| 铁牙 | 20% 吸血 | 咬合拖拽 `pull` 7s | 扑咬冲刺 `self_boost` 10s |
+| 铁锁 | 15% 减速 II | 看门犬咆哮 `shockwave` 13s | 钩索位移 `grapple` 9s |
+| 铁牙·改 | 20% 易伤 | 唤犬 `summon_ally` 45s | 冲锋 `self_boost` 8s |
+| 影铳 | 15% 破甲 | 精准射击 `projectile` 1.6s | 侧步 `blink` 8s |
+| 影镜 | 20% 减速 I | 减速弹 `projectile` 4s | 闪现 `blink` 8s |
+| 吉野之苇 | 移速 +6% / 20% 易伤 | 风刃 `projectile` 2.4s | 乘风 `self_boost` 8s |
+| 云丝 | 20% 减速 I | 丝网陷阱 `deploy_zone` 14s | 闪身 `blink` 7s |
 
 ## 二、技能类型与参数键全表
 
@@ -54,6 +88,21 @@ miss-sound / slow-type` 等表现键各类型通用，不再重复列出。
 | `mirror_burst` 范围压制 | `radius` `damage` `slow-duration` `slow-amplifier` `blindness-ticks` `echo-bonus` |
 | `mark_apply` 易伤标记 | `damage` `radius` `angle` `mark-bonus` `mark-ticks` `invisible-ticks` `slow-duration` `slow-amplifier` |
 | `armor_break` 破甲 | `damage` `radius` `knockback` `launch` `min-falloff` `armor-pierce` `debuff-ticks` `debuff-stacks` `slow-duration` `slow-amplifier` |
+
+### 被动（passive）
+
+`passive` 不是按键技能，写在武器顶层，由 `PassiveListener` 在命中时结算：
+
+| 参数键 | 说明 |
+| --- | --- |
+| `display` | 显示名（`/taketori skills` 与 doctor 输出用） |
+| `speed` / `resistance` / `jump` | 常驻属性（移速比例 / 抗性等级 / 跳跃等级），换手时刷新一次 |
+| `on-hit` | 命中效果：`mark` / `armor_break` / `slow` / `lifesteal` / `knockback`（也认中文别名） |
+| `chance` / `throw-chance` | 近战 / 箭矢与投掷的触发概率；`throw-chance` 缺省回落到 `chance` |
+| `mark-bonus` / `pierce` / `ticks` | 易伤强度 / 破甲强度 / 效果持续 tick |
+| `slow-amplifier` / `slow-duration` | 减速等级与时长（时长缺省用 `ticks`） |
+| `lifesteal` / `bonus-damage` | 吸血比例 / 命中附加伤害（点） |
+| `particle` / `sound` | 命中特效 |
 
 连击（`melee_smash` 的 `combo-*`）：命中目标才叠层（1.6.1 起，空挥不计数），
 `combo-window` 是层间最大间隔 tick，`combo-cap` 是伤害上限（0 = 不封顶）。

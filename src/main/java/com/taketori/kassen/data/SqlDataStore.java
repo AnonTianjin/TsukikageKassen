@@ -352,6 +352,23 @@ public abstract class SqlDataStore implements DataStore {
     }
 
     @Override
+    public int removeStats(UUID uuid) {
+        if (uuid == null) {
+            return 0;
+        }
+        synchronized (this) {
+            try (PreparedStatement ps = connection().prepareStatement(
+                    "DELETE FROM " + table("stats") + " WHERE uuid = ?")) {
+                ps.setString(1, uuid.toString());
+                return ps.executeUpdate();
+            } catch (SQLException ex) {
+                plugin.getLogger().log(Level.SEVERE, "[" + backend() + "] 删除战绩失败", ex);
+                return 0;
+            }
+        }
+    }
+
+    @Override
     public void close() {
         synchronized (this) {
             if (connection == null) {

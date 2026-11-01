@@ -1,6 +1,6 @@
 # 月影合战 · 战斗层配置
 # 修改后执行 /taketori reload 生效（无需重启服务器）
-config-version: 12
+config-version: 13
 
 # 语言文件（messages.yml）中的语言键
 language: zh_CN
@@ -121,19 +121,15 @@ room-shell:
 
 input:
   # Q 键处理方式：
-  #   drop      = Q 触发该武器 q 槽声明的技能（模式切换 / 装备切换）。默认值。
-  #   held-slot = Q 直接切换到下一件本角色的武器（不触发技能）
+  #   drop      = Q 只在战国能量满时释放必杀（2.0 起武器不再有 q 槽技能）
+  #   held-slot = Q 直接切换到下一件本角色的武器
   #   none      = 只拦截丢弃，不做任何切换
   q-mode: drop
   # 快捷栏中为角色武器预留的槽位（0-8）
   weapon-slots: [ 0, 1, 2, 3 ]
-  # 第三槽技能的触发方式（可多选，用逗号分隔；写 all = 全部启用）
-  #   double-sneak = 双击潜行键（默认，最可靠：潜行是独立按键，原版一定会发出事件）
-  #   sneak-q      = 潜行 + Q
-  #   double-right = 双击右键（第二次右键改派给第三槽，所以不会"先被右键槽吃掉"）
-  #   f            = F 键（交换副手）；部分服务器/插件会把这个动作吞掉，收不到就换别的
-  #   sneak-right  = 潜行 + 右键（旧行为）；注意：对着方块右键时原版根本不发事件，只有右键空气可靠
-  # 按了没反应时：先执行 /taketori keys 看按键有没有传到服务端，再用 /taketori f 手动触发兜底。
+  # 第三槽（移动技能）的触发方式：2.0 起固定为双击潜行，此键仅为兼容旧配置保留。
+  # 旧写法（f / sneak-q / double-right / sneak-right / all / both）会按双击潜行处理并在启动时点名。
+  # 按了没反应时：先执行 /taketori keys 看按键有没有传到服务端，再用 /taketori sneak 手动触发兜底。
   shift-right-trigger: double-sneak
 
 # ============================ 对局规则（玩法层）============================

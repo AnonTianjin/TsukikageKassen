@@ -165,9 +165,11 @@ data class OfflineTool(val mainClass: String, val taskName: String, val argument
 // CI 只跑 ./gradlew build，因此这份列表就是唯一的测试清单，不再额外手写 javac。
 val offlineTools = listOf(
     OfflineTool("BaseArgParserTest", "offlineBaseArgParser", emptyList()),
+    OfflineTool("CooldownManagerTest", "offlineCooldownManager", emptyList()),
     OfflineTool("LegacyConfigFallbackTest", "offlineLegacyConfigFallback", emptyList()),
     OfflineTool("MiniMessageClickTest", "offlineMiniMessageClick", emptyList()),
     OfflineTool("MinionRegionFilterTest", "offlineMinionRegionFilter", emptyList()),
+    OfflineTool("PassiveRulesTest", "offlinePassiveRules", emptyList()),
     OfflineTool("SengokuRoundTest", "offlineSengokuRound", emptyList()),
     OfflineTool("TowerContestTest", "offlineTowerContest", emptyList()),
     OfflineTool("WeaponYamlCheck", "offlineWeaponYamlCheck", listOf("src/main/resources")),

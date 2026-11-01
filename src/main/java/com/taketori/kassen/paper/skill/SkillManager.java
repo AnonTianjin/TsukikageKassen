@@ -1,8 +1,8 @@
 package com.taketori.kassen.paper.skill;
 
 import com.taketori.kassen.TaketoriPlugin;
-import com.taketori.kassen.core.character.PlayerProfile;
 import com.taketori.kassen.core.cooldown.CooldownManager;
+import com.taketori.kassen.core.skill.PassiveDef;
 import com.taketori.kassen.core.skill.SkillDef;
 import com.taketori.kassen.core.skill.SkillSlot;
 import com.taketori.kassen.core.weapon.WeaponDef;
@@ -89,15 +89,20 @@ public final class SkillManager {
             return SkillResult.FAILED;
         }
 
-        PlayerProfile profile = plugin.config().characters().profile(player.getUniqueId());
-        String mode = profile.mode(weapon.id(), weapon.defaultMode());
-        SkillDef def = weapon.skill(slot, mode);
+        SkillDef def = weapon.skill(slot);
         if (!def.isPresent()) {
-            trace(player, weapon.id(), slot, "mode=" + mode + " 下这个槽位没有绑定技能 → 不派发");
+            trace(player, weapon.id(), slot, "这个槽位没有绑定技能 → 不派发");
+            return SkillResult.NOT_BOUND;
+        }
+        // 被动不是可派发的技能：它由 PassiveListener 在命中时结算，进这里说明配置写错了位置
+        if (PassiveDef.TYPE.equalsIgnoreCase(def.type())) {
+            plugin.getLogger().warning("武器 " + weapon.id() + " 把 passive 写进了 " + slot.key()
+                    + " 槽：被动应写在顶层 passive: 段，已忽略本次派发");
+            trace(player, weapon.id(), slot, "passive 不能作为按键技能派发 → 忽略");
             return SkillResult.NOT_BOUND;
         }
 
-        String cooldownKey = CooldownManager.key(player.getUniqueId(), weapon.id(), slot);
+        CooldownManager.Key cooldownKey = CooldownManager.key(player.getUniqueId(), weapon.id(), slot);
         if (checkCooldown && !cooldowns.isReady(cooldownKey)) {
             double remaining = cooldowns.remainingSeconds(cooldownKey);
             if (plugin.config().actionbar()) {
@@ -131,7 +136,7 @@ public final class SkillManager {
         resolving.add(uuid);
         plugin.markInternalDamage(uuid);
         try {
-            result = skill.execute(new SkillContext(plugin, player, weapon, slot, def, mode));
+            result = skill.execute(new SkillContext(plugin, player, weapon, slot, def));
         } catch (Throwable throwable) {
             plugin.getLogger().severe("技能 " + def.type() + " 执行异常: " + throwable);
             result = SkillResult.FAILED;
@@ -153,11 +158,11 @@ public final class SkillManager {
                 cooldownBars.show(player, slot, displayName(def), def.cooldownSeconds());
             }
         }
-        trace(player, weapon.id(), slot, String.format("mode=%s type=%s -> %s", mode, def.type(), result));
+        trace(player, weapon.id(), slot, String.format("type=%s -> %s", def.type(), result));
 
-        // 第三槽（F 键 / 潜行+右键 / /taketori f）成功后附带增益。
+        // 第三槽（双击潜行）成功后附带增益。
         // 放在冷却结算之后、且只认 SUCCESS：冷却被拦下或没有目标时不会白送增益。
-        if (result == SkillResult.SUCCESS && slot == SkillSlot.SHIFT_RIGHT) {
+        if (result == SkillResult.SUCCESS && slot == SkillSlot.SNEAK) {
             applyThirdSlotBuff(player);
         }
         return result;
@@ -184,7 +189,7 @@ public final class SkillManager {
         int amplifier = plugin.config().thirdSlotBuffAmplifier();
         player.addPotionEffect(new PotionEffect(type, ticks, amplifier, false, true, true));
         if (plugin.config().debug()) {
-            trace(player, "third-slot-buff", SkillSlot.SHIFT_RIGHT,
+            trace(player, "third-slot-buff", SkillSlot.SNEAK,
                     "附加增益 " + type.getKey() + " 等级 " + (amplifier + 1) + " 持续 " + ticks + " tick");
         }
     }

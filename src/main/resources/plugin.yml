@@ -13,7 +13,7 @@ website: 'https://github.com/AnonTianjin/TsukikageKassen'
 commands:
   taketori:
     description: 月影合战主命令
-    usage: '/taketori <menu|admin|ranks|tag|tags|character|skills|mode|f|keys|play|match|team|arena|lobby|room|moonmap|pve|stats|shop|buy|overtime|leave|surrender|party|rejoin|editor|give|debug|doctor|qmode|reload>'
+    usage: '/taketori <menu|admin|ranks|tag|tags|character|skills|mode|f|keys|play|match|team|arena|lobby|room|moonmap|pve|stats|shop|buy|overtime|leave|surrender|party|rejoin|migrate|editor|give|debug|doctor|qmode|reload>'
     permission: taketori.play
 
 permissions:

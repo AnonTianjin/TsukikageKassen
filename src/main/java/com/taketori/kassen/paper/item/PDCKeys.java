@@ -55,6 +55,9 @@ public final class PDCKeys {
     private static NamespacedKey projShooter;
     private static NamespacedKey projFreezeTicks;
 
+    /** 弹体来源武器 id：弓/三叉戟射出时就写上，命中时据此取被动（投掷后主手已空，读不到物品）。 */
+    private static NamespacedKey projWeaponId;
+
     private static NamespacedKey arrowMultiplier;
     private static NamespacedKey arrowMarkBonus;
     private static NamespacedKey arrowMarkTicks;
@@ -166,6 +169,7 @@ public final class PDCKeys {
         projShooter = new NamespacedKey(plugin, "proj_shooter");
         projFreezeTicks = new NamespacedKey(plugin, "proj_freeze_ticks");
 
+        projWeaponId = new NamespacedKey(plugin, "proj_weapon_id");
         arrowMultiplier = new NamespacedKey(plugin, "arrow_multiplier");
         arrowMarkBonus = new NamespacedKey(plugin, "arrow_mark_bonus");
         arrowMarkTicks = new NamespacedKey(plugin, "arrow_mark_ticks");
@@ -292,6 +296,11 @@ public final class PDCKeys {
     /** 弹体命中后定身多少 tick（0 = 不定身）。 */
     public static NamespacedKey projFreezeTicks() {
         return projFreezeTicks;
+    }
+
+    /** 弹体来源武器 id（命中时取被动用）。 */
+    public static NamespacedKey projWeaponId() {
+        return projWeaponId;
     }
 
     /** 特殊射击的伤害倍率，写在被强化的箭矢上。 */

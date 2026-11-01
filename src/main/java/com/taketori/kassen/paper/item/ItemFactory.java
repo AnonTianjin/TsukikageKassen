@@ -7,6 +7,7 @@ import net.kyori.adventure.text.minimessage.MiniMessage;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
 import org.bukkit.attribute.Attribute;
+import org.bukkit.enchantments.Enchantment;
 import org.bukkit.attribute.AttributeModifier;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.EquipmentSlot;
@@ -32,8 +33,8 @@ import java.util.UUID;
  */
 public final class ItemFactory {
 
-    /** 从物品上读出的身份信息。 */
-    public record Identity(String characterId, String weaponId, String mode, String instanceId, String ownerId) {
+    /** 从物品上读出的身份信息（2.0 起不再有 mode）。 */
+    public record Identity(String characterId, String weaponId, String instanceId, String ownerId) {
 
         public boolean soulbound() {
             return ownerId != null && !ownerId.isBlank();
@@ -79,11 +80,11 @@ public final class ItemFactory {
             applyAttribute(meta, resolved, "attack_damage", "weapon_damage", def.attribute("attack-damage", Double.NaN));
             applyAttribute(meta, resolved, "attack_speed", "weapon_speed", def.attribute("attack-speed", Double.NaN));
             applyAttribute(meta, resolved, "movement_speed", "weapon_movement", def.attribute("movement-speed", Double.NaN));
+            applyEnchantments(meta, def);
 
             PersistentDataContainer pdc = meta.getPersistentDataContainer();
             pdc.set(PDCKeys.characterId(), PersistentDataType.STRING, def.characterId() == null ? "" : def.characterId());
             pdc.set(PDCKeys.weaponId(), PersistentDataType.STRING, def.id());
-            pdc.set(PDCKeys.mode(), PersistentDataType.STRING, def.defaultMode() == null ? "" : def.defaultMode());
             pdc.set(PDCKeys.instanceId(), PersistentDataType.STRING, UUID.randomUUID().toString());
             pdc.set(PDCKeys.dataVersion(), PersistentDataType.INTEGER, PDCKeys.CURRENT_DATA_VERSION);
             if (soulbound) {
@@ -118,6 +119,33 @@ public final class ItemFactory {
                 EquipmentSlotGroup.MAINHAND));
     }
 
+    /**
+     * 写入 weapons.yml 里声明的附魔（例如三叉戟的 {@code loyalty: 3}）。
+     *
+     * <p>附魔 id 解析失败只告警跳过——一条写错的附魔不该让整把武器发不出来。
+     * 等级会夹到该附魔的原版上限，避免 255 级忠诚之类的脏数据。</p>
+     */
+    private void applyEnchantments(ItemMeta meta, WeaponDef def) {
+        if (!def.hasEnchantments()) {
+            return;
+        }
+        for (var entry : def.enchantments().entrySet()) {
+            String key = entry.getKey();
+            NamespacedKey namespaced = key.contains(":")
+                    ? NamespacedKey.fromString(key)
+                    : NamespacedKey.minecraft(key);
+            Enchantment enchantment = namespaced == null ? null : Enchantment.getByKey(namespaced);
+            if (enchantment == null) {
+                plugin.getLogger().warning("武器 " + def.id() + " 的附魔无法解析: " + key + "，已跳过");
+                continue;
+            }
+            int level = Math.max(1, Math.min(entry.getValue(), enchantment.getMaxLevel()));
+            meta.addEnchant(enchantment, level, true);
+        }
+        // 附魔是机制不是展示：Lore 里不出现原版附魔行，避免与自定义 Lore 挤在一起
+        meta.addItemFlags(ItemFlag.HIDE_ENCHANTS);
+    }
+
     /** 读该 Material 在主手上的原版默认属性值；取不到时按 0 处理（即"纯加成"回退）。 */
     private double baseValueOf(Material material, Attribute attribute) {
         try {
@@ -149,23 +177,14 @@ public final class ItemFactory {
             return null;
         }
         String characterId = pdc.get(PDCKeys.characterId(), PersistentDataType.STRING);
-        String mode = pdc.get(PDCKeys.mode(), PersistentDataType.STRING);
         String instanceId = pdc.get(PDCKeys.instanceId(), PersistentDataType.STRING);
         String ownerId = pdc.get(PDCKeys.owner(), PersistentDataType.STRING);
-        return new Identity(characterId, weaponId, mode, instanceId, ownerId);
+        // 旧物品可能残留 mode PDC：直接忽略，不影响识别
+        return new Identity(characterId, weaponId, instanceId, ownerId);
     }
 
     public boolean isPluginWeapon(ItemStack stack) {
         return read(stack) != null;
-    }
-
-    /** 把当前模式写回物品（仅展示用冗余，真源在 PlayerProfile）。 */
-    public void writeMode(ItemStack stack, String mode) {
-        if (stack == null || stack.getType().isAir() || mode == null) {
-            return;
-        }
-        stack.editMeta(meta -> meta.getPersistentDataContainer()
-                .set(PDCKeys.mode(), PersistentDataType.STRING, mode));
     }
 
     /** 物品是否属于该玩家（未绑定物品视为公共可用）。 */

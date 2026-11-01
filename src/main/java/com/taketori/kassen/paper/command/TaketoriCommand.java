@@ -1,6 +1,7 @@
 package com.taketori.kassen.paper.command;
 
 import com.taketori.kassen.TaketoriPlugin;
+import com.taketori.kassen.data.UuidMigration;
 import com.taketori.kassen.core.lobby.LobbyAction;
 import com.taketori.kassen.core.skill.SkillSlot;
 import com.taketori.kassen.core.skill.ThirdSlotTrigger;
@@ -16,6 +17,7 @@ import net.kyori.adventure.text.minimessage.MiniMessage;
 import org.bukkit.inventory.ItemStack;
 
 import java.io.File;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -38,8 +40,8 @@ public final class TaketoriCommand implements CommandExecutor, TabCompleter {
     private static final List<String> SUB_COMMANDS = List.of(
             "reload", "give", "character", "debug", "doctor", "mode", "qmode", "skills",
             "match", "team", "arena", "lobby", "room", "moonmap", "stats", "play", "leave", "surrender",
-            "editor", "menu", "ranks", "admin", "tag", "tags", "f", "pve", "keys", "party", "rejoin",
-            "shop", "buy", "overtime");
+            "editor", "menu", "ranks", "admin", "tag", "tags", "f", "sneak", "pve", "keys", "party", "rejoin",
+            "shop", "buy", "overtime", "migrate");
 
     private static final List<String> Q_MODES = List.of("drop", "held-slot", "none");
 
@@ -105,8 +107,8 @@ public final class TaketoriCommand implements CommandExecutor, TabCompleter {
             // 隐性标签：设置 / 查看（权重决定同队角色冲突时的优先级）
             case "tag" -> handleTag(sender, args);
             case "tags" -> handleTags(sender);
-            // 手动触发第三槽技能（F 键被别的插件吞掉时的兜底与自检）
-            case "f" -> handleThirdSlot(sender);
+            // 手动触发第三槽（移动技能）：sneak 是 2.0 的新名字，f 保留给旧习惯与脚本
+            case "f", "sneak" -> handleThirdSlot(sender);
             // 按键诊断：回放最近收到的原始输入事件（判断"按键到底有没有传到服务端"）
             case "keys" -> handleKeys(sender);
             case "play" -> handlePlay(sender);
@@ -114,6 +116,8 @@ public final class TaketoriCommand implements CommandExecutor, TabCompleter {
             case "party" -> handleParty(sender, args);
             // 断线重连：对局中掉线时限内回到原房原队（上线时自动尝试，这条是手动兜底）
             case "rejoin" -> handleRejoin(sender);
+            // UUID 迁移：离线键 → 正版键（先 dry-run，加 confirm 才真正执行）
+            case "migrate" -> handleMigrate(sender, args);
             default -> sender.sendMessage(plugin.config().messages().prefixed("command.unknown-sub"));
         }
         return true;
@@ -267,18 +271,15 @@ public final class TaketoriCommand implements CommandExecutor, TabCompleter {
             sender.sendMessage(MINI.deserialize("<red>weapon_id 在 weapons.yml 里不存在：" + identity.weaponId()));
             return;
         }
-        var profile = plugin.config().characters().profile(player.getUniqueId());
-        String mode = profile.mode(weapon.id(), weapon.defaultMode());
-        var def = weapon.skill(SkillSlot.SHIFT_RIGHT, mode);
+        var def = weapon.skill(SkillSlot.SNEAK);
         if (!def.isPresent()) {
-            sender.sendMessage(MINI.deserialize("<yellow>当前武器 <white>" + weapon.id() + "</white>（模式 "
-                    + mode + "）的第三槽没有绑定技能。"));
+            sender.sendMessage(MINI.deserialize("<yellow>当前武器 <white>" + weapon.id()
+                    + "</white> 的第三槽（双击潜行）没有绑定技能。"));
             return;
         }
-        plugin.skills().dispatch(player, hand, SkillSlot.SHIFT_RIGHT, true);
+        plugin.skills().dispatch(player, hand, SkillSlot.SNEAK, true);
         sender.sendMessage(MINI.deserialize("<gray>已手动触发第三槽：<white>" + def.type()
-                + "</white> <dark_gray>(当前触发方式："
-                + ThirdSlotTrigger.join(plugin.config().thirdSlotTriggers())
+                + "</white> <dark_gray>(触发方式：" + ThirdSlotTrigger.display()
                 + "，用 /taketori keys 看按键是否真的传到了服务端)"));
     }
 
@@ -297,19 +298,10 @@ public final class TaketoriCommand implements CommandExecutor, TabCompleter {
             sender.sendMessage(MINI.deserialize("<red>请在游戏内执行（要看的是你自己的按键记录）。"));
             return;
         }
-        var triggers = plugin.config().thirdSlotTriggers();
         String raw = plugin.config().shiftRightTrigger();
         sender.sendMessage(MINI.deserialize("<gold>===== 按键诊断 ====="));
-        sender.sendMessage(MINI.deserialize("<gray>第三槽触发方式：<white>"
-                + ThirdSlotTrigger.join(triggers) + "</white> <dark_gray>(config.yml: " + raw + ")"));
-        StringBuilder names = new StringBuilder();
-        for (ThirdSlotTrigger trigger : triggers) {
-            if (!names.isEmpty()) {
-                names.append(" / ");
-            }
-            names.append(trigger.display());
-        }
-        sender.sendMessage(MINI.deserialize("<gray>也就是：<white>" + names));
+        sender.sendMessage(MINI.deserialize("<gray>第三槽触发方式：<white>" + ThirdSlotTrigger.display()
+                + "</white> <dark_gray>(config.yml: " + raw + ")"));
         List<String> traces = plugin.input() == null ? List.of() : plugin.input().tracesOf(player.getUniqueId());
         if (traces.isEmpty()) {
             sender.sendMessage(MINI.deserialize("<yellow>还没有收到任何按键事件。"));
@@ -393,16 +385,9 @@ public final class TaketoriCommand implements CommandExecutor, TabCompleter {
             sender.sendMessage(plugin.config().messages().prefixed("command.mode-not-weapon"));
             return;
         }
-        var weapon = plugin.config().weapons().get(identity.weaponId());
-        String mode = plugin.config().characters().profile(player.getUniqueId())
-                .mode(identity.weaponId(), weapon == null ? "?" : weapon.defaultMode());
-        var result = plugin.skills().dispatch(player, hand, SkillSlot.Q, true);
-        sender.sendMessage(plugin.config().messages().prefixed("command.mode-result",
-                "result", result.name()));
-        sender.sendMessage(plugin.config().messages().prefixed("command.mode-detail",
-                "weapon", identity.weaponId(),
-                "mode", mode,
-                "hasModes", weapon != null && weapon.hasModes()));
+        // 2.0：武器不再有模式，Q 槽下线；保留了命令名，执行时给出明确说明
+        sender.sendMessage(MINI.deserialize("<yellow>2.0 已移除武器模式切换（Q 槽下线）。"
+                + "每把武器固定三个技能：左键 / 右键 / 双击潜行。"));
     }
 
     /** /taketori qmode <drop|held-slot|none>：运行时切换 Q 键行为。 */
@@ -446,18 +431,16 @@ public final class TaketoriCommand implements CommandExecutor, TabCompleter {
             sender.sendMessage(messages.prefixed("command.weapon-not-found", "id", identity.weaponId()));
             return;
         }
-        String mode = plugin.config().characters().profile(player.getUniqueId())
-                .mode(identity.weaponId(), weapon.defaultMode());
-
         sender.sendMessage(messages.get("command.skills-header"));
         sender.sendMessage(messages.get("command.skills-line",
                 "slot", "武器",
                 "name", weapon.display(),
-                "state", "<gray>模式 <white>" + mode + "</white>"
-                        + (weapon.hasModes() ? " <dark_gray>（Q 可切换：" + String.join(" / ", weapon.modes().keySet()) + "）" : "")));
+                "state", weapon.hasPassive()
+                        ? "<gray>被动 <white>" + weapon.passive().display()
+                        : "<dark_gray>无被动"));
 
         for (SkillSlot slot : SkillSlot.values()) {
-            var def = weapon.skill(slot, mode);
+            var def = weapon.skill(slot);
             String name;
             String state;
             if (!def.isPresent()) {
@@ -581,6 +564,113 @@ public final class TaketoriCommand implements CommandExecutor, TabCompleter {
         }
         if (!plugin.rejoin().tryRejoin(player)) {
             sender.sendMessage(plugin.config().messages().prefixed("rejoin.no-session"));
+        }
+    }
+
+    /**
+     * /taketori migrate uuid &lt;旧UUID|旧名字&gt; &lt;新UUID&gt; [confirm] —— 一次性 UUID 迁移。
+     *
+     * <p>旧键写名字时按 Bukkit 的离线规则（{@code OfflinePlayer:<name>} 的 MD5 v3）算出来，
+     * 正好就是离线服里那个「名字派生」的 UUID；新键必须是 UUID，正版 UUID 可以用
+     * {@code https://api.mojang.com/users/profiles/minecraft/<name>} 查（返回的 32 位可直接粘）。</p>
+     *
+     * <p>不带 {@code confirm} 只做盘点（dry-run），一个字节都不写。</p>
+     */
+    private void handleMigrate(CommandSender sender, String[] args) {
+        if (!require(sender, "taketori.admin")) {
+            return;
+        }
+        if (args.length < 4 || !"uuid".equalsIgnoreCase(args[1])) {
+            sender.sendMessage(MINI.deserialize(
+                    "<red>用法：<white>/taketori migrate uuid <旧UUID|旧名字> <新UUID> [confirm]"));
+            sender.sendMessage(MINI.deserialize("<gray>旧键可写玩家名（按离线 UUID 计算）；新键用正版 UUID，"
+                    + "可从 <white>api.mojang.com/users/profiles/minecraft/&lt;名字&gt;</white> 取。"));
+            return;
+        }
+        UUID oldId = resolveOldId(args[2]);
+        if (oldId == null) {
+            sender.sendMessage(MINI.deserialize("<red>无法解析旧 UUID 或旧名字：<white>" + args[2]));
+            return;
+        }
+        UUID newId = parseUuid(args[3]);
+        if (newId == null) {
+            sender.sendMessage(MINI.deserialize("<red>新 UUID 不合法：<white>" + args[3]
+                    + "<gray>（需要 32 位十六进制，带不带中划线都行）"));
+            return;
+        }
+        if (newId.equals(oldId)) {
+            sender.sendMessage(MINI.deserialize("<yellow>新旧 UUID 相同，无需迁移。"));
+            return;
+        }
+
+        // 迁移要读「已经落盘」的数据：先把内存里的档案与战绩刷下去
+        plugin.dataStore().saveAll();
+        plugin.stats().save();
+
+        UuidMigration migration = new UuidMigration(plugin);
+        UuidMigration.Plan plan = migration.plan(oldId, newId);
+        if (plan.empty()) {
+            sender.sendMessage(MINI.deserialize("<yellow>旧键 <white>" + oldId
+                    + "</white> 上没有角色绑定、标签或战绩，无需迁移。"));
+            return;
+        }
+
+        if (args.length < 5 || !"confirm".equalsIgnoreCase(args[4])) {
+            sender.sendMessage(MINI.deserialize("<gold>===== UUID 迁移预演（未写入）====="));
+            sender.sendMessage(MINI.deserialize("<gray>旧键：<white>" + oldId
+                    + (plan.oldName() == null ? "" : " <dark_gray>(" + plan.oldName() + ")")));
+            sender.sendMessage(MINI.deserialize("<gray>新键：<white>" + newId));
+            sender.sendMessage(MINI.deserialize("<gray>角色：<white>"
+                    + (plan.characterId() == null ? "无" : plan.characterId())
+                    + " <gray>标签：<white>" + (plan.tagId() == null ? "无" : plan.tagId())));
+            sender.sendMessage(MINI.deserialize("<gray>战绩：<white>" + plan.stats().size()
+                    + " 项，合计 " + plan.statTotal()));
+            sender.sendMessage(MINI.deserialize("<yellow>确认无误后执行：<white>/taketori migrate uuid "
+                    + args[2] + " " + newId + " confirm"));
+            return;
+        }
+
+        UuidMigration.Result result = migration.apply(plan, sender.getName());
+        // 内存里还挂着旧键：重新载入，排行榜与角色查询立刻切到新键
+        plugin.stats().load();
+        sender.sendMessage(MINI.deserialize("<green>迁移完成：<white>"
+                + (result.characterMoved() ? "角色已搬 " : "")
+                + (result.tagMoved() ? "标签已搬 " : "")
+                + "战绩 " + result.statKeys() + " 项（合计 " + result.statTotal() + "）"));
+        sender.sendMessage(MINI.deserialize("<gray>旧键已清空；审计记录写入 <white>data/migrations.log</white>。"
+                + "<gray>若该玩家在线，请让他重连一次。"));
+    }
+
+    /** 旧键：UUID 直接解析；名字按 Bukkit 离线规则（{@code OfflinePlayer:name} 的 MD5 v3）计算。 */
+    private static UUID resolveOldId(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        UUID parsed = parseUuid(raw);
+        if (parsed != null) {
+            return parsed;
+        }
+        String name = raw.trim();
+        if (!name.matches("[A-Za-z0-9_]{1,16}")) {
+            return null;   // 基岩版前缀名等非标准名不能靠名字反推，直接写 UUID
+        }
+        return UUID.nameUUIDFromBytes(("OfflinePlayer:" + name).getBytes(StandardCharsets.UTF_8));
+    }
+
+    /** 32 位十六进制（可带中划线）；Mojang 接口返回的无横线形式也接受。 */
+    private static UUID parseUuid(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        String text = raw.trim().replace("-", "");
+        if (text.length() != 32) {
+            return null;
+        }
+        try {
+            return new UUID(Long.parseUnsignedLong(text.substring(0, 16), 16),
+                    Long.parseUnsignedLong(text.substring(16), 16));
+        } catch (NumberFormatException ex) {
+            return null;
         }
     }
 

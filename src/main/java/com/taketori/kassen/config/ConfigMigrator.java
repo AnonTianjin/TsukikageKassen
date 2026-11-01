@@ -16,7 +16,7 @@ import java.util.List;
 public final class ConfigMigrator {
 
     /** 当前配置结构版本；每次改动默认值或键名都要 +1，并在下面加一段迁移。 */
-    public static final int CURRENT_VERSION = 12;
+    public static final int CURRENT_VERSION = 13;
 
     private final TaketoriPlugin plugin;
 
@@ -344,6 +344,33 @@ public final class ConfigMigrator {
                     + "——比分未达标时投票加时，纯 PVP 只算人头");
         }
 
+
+        if (version < 13) {
+            // 2.0：第三槽只保留双击潜行，旧写法（f / sneak-right / double-right / sneak-q / all）
+            // 一律回落，同时提示 weapons.yml 需要换成「三槽 + passive」的新结构
+            String trigger = config.getString("input.shift-right-trigger", "");
+            if (!com.taketori.kassen.core.skill.ThirdSlotTrigger.isDefault(trigger)) {
+                config.set("input.shift-right-trigger", com.taketori.kassen.core.skill.ThirdSlotTrigger.DOUBLE_SNEAK);
+                notes.add("input.shift-right-trigger: " + trigger
+                        + " → double-sneak（2.0 起第三槽固定为双击潜行）");
+            }
+            // 只有真的还是旧结构才提示：新装服务器的 weapons.yml 已经是三段式，不该被这条噪音吓到
+            java.io.File weaponsFile = new java.io.File(plugin.getDataFolder(), "weapons.yml");
+            if (weaponsFile.isFile()) {
+                try {
+                    String text = java.nio.file.Files.readString(weaponsFile.toPath());
+                    boolean legacy = text.contains("shift-right:") || text.contains("modes:")
+                            || text.contains("default-mode:");
+                    if (legacy) {
+                        notes.add("weapons.yml: 2.0 改为「三槽 + 独立被动」结构（left / right / sneak + passive），"
+                                + "shift-right、q、modes、default-mode 全部下线；"
+                                + "请备份后删除 weapons.yml 再 /taketori reload 取新模板");
+                    }
+                } catch (java.io.IOException ignored) {
+                    // 读不到就当新结构处理：宁可少一条提示，也不要误报
+                }
+            }
+        }
 
         config.set("config-version", CURRENT_VERSION);
         plugin.saveConfig();

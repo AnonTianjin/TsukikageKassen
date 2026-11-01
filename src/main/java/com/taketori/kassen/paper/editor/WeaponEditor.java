@@ -132,8 +132,10 @@ public final class WeaponEditor {
             List<net.kyori.adventure.text.Component> lore = new ArrayList<>();
             lore.add(MINI.deserialize("<dark_gray>id: <white>" + weapon.id()));
             lore.add(MINI.deserialize("<dark_gray>材质: <white>" + weapon.materialName()));
-            lore.add(MINI.deserialize("<dark_gray>默认模式: <white>"
-                    + (weapon.defaultMode().isBlank() ? "-" : weapon.defaultMode())));
+            if (weapon.hasPassive()) {
+                lore.add(MINI.deserialize("<dark_gray>被动: <white>" + weapon.passive().display()
+                        + " <dark_gray>(" + weapon.passive().onHit() + ")"));
+            }
             weapon.attributes().forEach((key, value) ->
                     lore.add(MINI.deserialize("<dark_gray>属性 " + key + ": <white>" + value)));
             if (weapon.hasHitEffects()) {
@@ -227,17 +229,13 @@ public final class WeaponEditor {
             open(player);
             return;
         }
-        SkillDef def = modeId == null
-                ? weapon.baseSkills().getOrDefault(slot, SkillDef.none())
-                : (weapon.mode(modeId) == null
-                ? SkillDef.none()
-                : weapon.mode(modeId).skills().getOrDefault(slot, SkillDef.none()));
+        SkillDef def = weapon.skill(slot);
         if (!def.isPresent()) {
             say(player, "<red>该槽位没有绑定技能。");
             openWeapon(player, weaponId);
             return;
         }
-        String title = weaponId + (modeId == null ? "" : " · " + modeId) + " · " + slotName(slot);
+        String title = weaponId + " · " + slotName(slot);
         EditorHolder holder = new EditorHolder();
         Inventory inventory = Bukkit.createInventory(holder, 54,
                 MINI.deserialize("<dark_gray>编辑 · <white>" + title));
@@ -402,21 +400,13 @@ public final class WeaponEditor {
 
     // ---------------------------------------------------------------- 小工具
 
-    /** 该武器所有有技能的槽位（武器级 + 各模式级）。 */
+    /** 该武器所有有技能的槽位（2.0 只有三个）。 */
     private List<SlotRef> slotRefs(WeaponDef weapon) {
         List<SlotRef> result = new ArrayList<>();
         for (SkillSlot slot : SkillSlot.values()) {
-            SkillDef def = weapon.baseSkills().get(slot);
+            SkillDef def = weapon.skills().get(slot);
             if (def != null && def.isPresent()) {
                 result.add(new SlotRef(null, slot, def));
-            }
-        }
-        for (Map.Entry<String, WeaponDef.ModeDef> entry : weapon.modes().entrySet()) {
-            for (SkillSlot slot : SkillSlot.values()) {
-                SkillDef def = entry.getValue().skills().get(slot);
-                if (def != null && def.isPresent()) {
-                    result.add(new SlotRef(entry.getKey(), slot, def));
-                }
             }
         }
         return result;
@@ -425,10 +415,6 @@ public final class WeaponEditor {
     private List<String> skillBasePath(String weaponId, String modeId, SkillSlot slot) {
         List<String> path = new ArrayList<>();
         path.add(weaponId);
-        if (modeId != null) {
-            path.add("modes");
-            path.add(modeId);
-        }
         path.add("skills");
         path.add(slot.key());
         return path;
@@ -438,8 +424,7 @@ public final class WeaponEditor {
         return switch (slot) {
             case LEFT -> "左键";
             case RIGHT -> "右键";
-            case SHIFT_RIGHT -> "Shift+右键";
-            case Q -> "Q 键";
+            case SNEAK -> "双击潜行";
         };
     }
 

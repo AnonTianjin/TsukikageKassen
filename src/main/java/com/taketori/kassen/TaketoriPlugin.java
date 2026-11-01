@@ -45,7 +45,6 @@ import com.taketori.kassen.paper.skill.SkillManager;
 import com.taketori.kassen.paper.skill.SkillRegistry;
 import com.taketori.kassen.paper.skill.impl.ArmorBreakSkill;
 import com.taketori.kassen.paper.skill.impl.BlinkSkill;
-import com.taketori.kassen.paper.skill.impl.EquipSwitchSkill;
 import com.taketori.kassen.paper.skill.impl.DeployZoneSkill;
 import com.taketori.kassen.paper.skill.impl.EchoConsumeSkill;
 import com.taketori.kassen.paper.skill.impl.GrappleSkill;
@@ -53,7 +52,6 @@ import com.taketori.kassen.paper.skill.impl.MarkApplySkill;
 import com.taketori.kassen.paper.skill.impl.MeleeSmashSkill;
 import com.taketori.kassen.paper.skill.impl.MirrorBurstSkill;
 import com.taketori.kassen.paper.skill.impl.MirrorSkill;
-import com.taketori.kassen.paper.skill.impl.ModeSwitchSkill;
 import com.taketori.kassen.paper.skill.impl.ProjectileSkill;
 import com.taketori.kassen.paper.skill.impl.PullSkill;
 import com.taketori.kassen.paper.skill.impl.ReflectSkill;
@@ -61,7 +59,6 @@ import com.taketori.kassen.paper.skill.impl.RocketJumpSkill;
 import com.taketori.kassen.paper.skill.impl.ShockwaveSkill;
 import com.taketori.kassen.paper.skill.impl.SelfBoostSkill;
 import com.taketori.kassen.paper.skill.impl.ShieldGuardSkill;
-import com.taketori.kassen.paper.skill.impl.SpecialShotToggleSkill;
 import com.taketori.kassen.paper.skill.impl.SummonAllySkill;
 import com.taketori.kassen.paper.state.CombatStates;
 import com.taketori.kassen.version.DefaultVersionAdapter;
@@ -102,6 +99,8 @@ public final class TaketoriPlugin extends JavaPlugin {
     /** 伤害数字（动作栏聚合汇报，A1 手感项）。 */
     private com.taketori.kassen.paper.effect.DamageNumbers damageNumbers;
     private SchedulerAdapter scheduler;
+    private com.taketori.kassen.paper.passive.PassiveEffects passiveEffects;
+    private com.taketori.kassen.paper.passive.PassiveApplier passiveApplier;
     private CombatStates states;
     private SkillRegistry registry;
     private CooldownManager cooldowns;
@@ -277,6 +276,12 @@ public final class TaketoriPlugin extends JavaPlugin {
         getServer().getPluginManager().registerEvents(roomShellMenu(), this);
         getServer().getPluginManager().registerEvents(new CarrierGuardListener(this), this);
         getServer().getPluginManager().registerEvents(new CombatListener(this), this);
+        // 被动：命中结算（近战 + 箭矢/投掷）与常驻属性刷新
+        passiveEffects = new com.taketori.kassen.paper.passive.PassiveEffects(this);
+        getServer().getPluginManager().registerEvents(
+                new com.taketori.kassen.paper.listener.PassiveListener(this, passiveEffects), this);
+        passiveApplier = new com.taketori.kassen.paper.passive.PassiveApplier(this);
+        getServer().getPluginManager().registerEvents(passiveApplier, this);
         getServer().getPluginManager().registerEvents(new ProjectileListener(this), this);
         getServer().getPluginManager().registerEvents(new PlayerListener(this), this);
         // 战国 3v3：目前只做天守阁保护，后续阶段在这里挂铜钟 / 击破器 / 跳跃台
@@ -305,6 +310,11 @@ public final class TaketoriPlugin extends JavaPlugin {
         if (dataStore != null) {
             dataStore.saveAll();
             dataStore.close();
+        }
+        if (passiveApplier != null) {
+            for (Player online : getServer().getOnlinePlayers()) {
+                passiveApplier.clear(online);   // 撤掉被动加过的属性/药水，插件卸载后不留残余
+            }
         }
         if (cooldowns != null) {
             cooldowns.clearAll();
@@ -510,15 +520,13 @@ public final class TaketoriPlugin extends JavaPlugin {
                     : "否（角色装备由开局发放；管理可用 /taketori character 指定角色）"));
             if (identity != null) {
                 lines.add("PDC: weapon_id=" + identity.weaponId() + " character_id=" + identity.characterId()
-                        + " mode=" + identity.mode() + " soulbound=" + identity.soulbound());
+                        + " soulbound=" + identity.soulbound());
                 var weapon = config.weapons().get(identity.weaponId());
                 if (weapon == null) {
                     lines.add("!! weapon_id 在 weapons.yml 里不存在");
                 } else {
-                    String mode = profile.mode(weapon.id(), weapon.defaultMode());
-                    lines.add("当前模式: " + mode + " / 可用模式 " + weapon.modes().keySet());
                     for (SkillSlot slot : SkillSlot.values()) {
-                        var def = weapon.skill(slot, mode);
+                        var def = weapon.skill(slot);
                         if (!def.isPresent()) {
                             lines.add("  " + slot.key() + ": 未绑定（走原版行为）");
                             continue;
@@ -527,6 +535,12 @@ public final class TaketoriPlugin extends JavaPlugin {
                                 CooldownManager.key(player.getUniqueId(), weapon.id(), slot));
                         lines.add("  " + slot.key() + ": " + def.type()
                                 + (cooldown > 0 ? "（冷却 " + SkillManager.formatSeconds(cooldown) + "s）" : "（就绪）"));
+                    }
+                    if (weapon.hasPassive()) {
+                        lines.add("  被动: " + weapon.passive().display()
+                                + "（" + weapon.passive().onHit() + "，近战 "
+                                + Math.round(weapon.passive().chance() * 100.0D) + "% / 远程 "
+                                + Math.round(weapon.passive().throwChance() * 100.0D) + "%）");
                     }
                 }
             }
@@ -624,12 +638,9 @@ public final class TaketoriPlugin extends JavaPlugin {
         registry.register(new SelfBoostSkill(this));
         registry.register(new BlinkSkill(this));
         registry.register(new GrappleSkill(this));
-        registry.register(new SpecialShotToggleSkill(this));
         registry.register(new ShieldGuardSkill(this));
         registry.register(new MirrorSkill(this));
         registry.register(new MirrorBurstSkill(this));
-        registry.register(new ModeSwitchSkill(this));
-        registry.register(new EquipSwitchSkill(this));
         registry.register(new ShockwaveSkill(this));
         registry.register(new RocketJumpSkill(this));
         registry.register(new PullSkill(this));
@@ -662,6 +673,9 @@ public final class TaketoriPlugin extends JavaPlugin {
         minionTypes.load();   // 月人种类与精英规格
         loadTags();           // 隐性标签与权重
         validateConfig();
+        // 被动的常驻属性是"刷新一次"而非每 tick 施加，重载后必须重新刷一遍，
+        // 否则改完 weapons.yml 的 speed / resistance，玩家要等下次换手才生效
+        refreshPassives();
         return true;
     }
 
@@ -784,6 +798,10 @@ public final class TaketoriPlugin extends JavaPlugin {
         applyCharacterAttributes(player, character);
         giveLoadoutArmor(player);
         giveCharacterExtras(player, characterId);
+        // 发完武器立刻按新主手结算被动常驻属性（换手事件不一定会在这里触发）
+        if (passiveApplier != null) {
+            passiveApplier.refresh(player);
+        }
     }
 
     /**
@@ -987,21 +1005,21 @@ public final class TaketoriPlugin extends JavaPlugin {
         } else {
             var weapon = config.weapons().get(identity.weaponId());
             builder.append(" weapon=").append(identity.weaponId());
-            builder.append(" mode=").append(profile.mode(identity.weaponId(),
-                    weapon == null ? "?" : weapon.defaultMode()));
             if (weapon != null) {
                 for (SkillSlot slot : SkillSlot.values()) {
-                    var def = weapon.skill(slot, profile.mode(identity.weaponId(), weapon.defaultMode()));
+                    var def = weapon.skill(slot);
                     if (def.isPresent()) {
-                        String key = CooldownManager.key(player.getUniqueId(), weapon.id(), slot);
+                        CooldownManager.Key key = CooldownManager.key(player.getUniqueId(), weapon.id(), slot);
                         builder.append(' ').append(slot.key()).append('=').append(def.type());
                         if (!cooldowns.isReady(key)) {
                             builder.append("(cd ").append(SkillManager.formatSeconds(cooldowns.remainingSeconds(key))).append(')');
                         }
                     }
                 }
+                if (weapon.hasPassive()) {
+                    builder.append(" passive=").append(weapon.passive().onHit());
+                }
             }
-            builder.append(" specialShot=").append(profile.specialShot());
         }
         var defense = states.defense(player.getUniqueId());
         builder.append(" defense=").append(defense == null ? "none" : defense.source() + "("
@@ -1235,6 +1253,21 @@ public final class TaketoriPlugin extends JavaPlugin {
 
     public CooldownManager cooldowns() {
         return cooldowns;
+    }
+
+    /** 被动的常驻属性刷新组件（换手 / 进服 / 重载时使用）。 */
+    public com.taketori.kassen.paper.passive.PassiveApplier passiveApplier() {
+        return passiveApplier;
+    }
+
+    /** 让所有在线玩家按当前主手武器重新结算被动常驻属性。 */
+    public void refreshPassives() {
+        if (passiveApplier == null) {
+            return;
+        }
+        for (Player player : getServer().getOnlinePlayers()) {
+            passiveApplier.refresh(player);
+        }
     }
 
     public SkillManager skills() {

@@ -87,7 +87,8 @@ public final class LegacyConfigFallbackTest {
     }
 
     private static WeaponDef weapon(String id) {
-        return new WeaponDef(id, "tsukuyomi", id, "STICK", 0, null, null, null, null, null);
+        return new WeaponDef(id, "tsukuyomi", id, "STICK", 0, null, null, null,
+                com.taketori.kassen.core.skill.PassiveDef.none(), null, null);
     }
 
     private static CharacterDef character(String id, List<String> weapons) {

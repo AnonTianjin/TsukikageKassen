@@ -135,8 +135,7 @@ public final class CooldownBars {
         return switch (slot) {
             case LEFT -> BossBar.Color.BLUE;
             case RIGHT -> BossBar.Color.GREEN;
-            case SHIFT_RIGHT -> BossBar.Color.YELLOW;
-            case Q -> BossBar.Color.PURPLE;
+            case SNEAK -> BossBar.Color.PURPLE;
         };
     }
 }

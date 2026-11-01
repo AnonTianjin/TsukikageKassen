@@ -1,14 +1,12 @@
 package com.taketori.kassen.core.character;
 
-import java.util.HashMap;
-import java.util.Map;
 import java.util.UUID;
 
 /**
- * 玩家运行时档案：角色绑定、每把武器的当前模式、弓的特殊射击开关、挥击去重窗口。
+ * 玩家运行时档案：角色绑定、隐性标签、挥击去重窗口。
  *
- * <p>这里是 <b>mode 的真源</b>（计划 §3.3）：物品上的 PDC 只作为展示用冗余，
- * 避免每次切换模式都重写 ItemStack 造成物品栏闪烁与脏数据。</p>
+ * <p>2.0 起武器不再有"模式"，原先存在这里的 per-weapon mode 状态一并移除；
+ * 需要跨事件判断的东西只剩「同一次挥击是否已经结算过」。</p>
  */
 public final class PlayerProfile {
 
@@ -16,7 +14,6 @@ public final class PlayerProfile {
     private String characterId;
     /** 隐性标签 id（权重见 config.yml 的 tags 段）；只影响同队角色冲突时的优先级。 */
     private String tag;
-    private final Map<String, String> weaponModes = new HashMap<>();
     private boolean specialShot;
     private long lastSwingTick = Long.MIN_VALUE;
     private String lastSwingWeapon;
@@ -49,20 +46,6 @@ public final class PlayerProfile {
 
     public void setTag(String tag) {
         this.tag = tag == null || tag.isBlank() ? null : tag;
-    }
-
-    public String mode(String weaponId, String defaultMode) {
-        return weaponModes.getOrDefault(weaponId, defaultMode);
-    }
-
-    public void setMode(String weaponId, String mode) {
-        if (weaponId != null && mode != null) {
-            weaponModes.put(weaponId, mode);
-        }
-    }
-
-    public Map<String, String> allModes() {
-        return Map.copyOf(weaponModes);
     }
 
     public boolean specialShot() {

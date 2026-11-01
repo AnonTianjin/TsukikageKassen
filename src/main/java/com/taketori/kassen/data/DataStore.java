@@ -38,6 +38,13 @@ public interface DataStore extends PlayerDataStore {
     /** 整批写入战绩（只写非 0 项；已存在的行覆盖为传入值）。 */
     void saveStats(Map<UUID, Map<String, Long>> stats);
 
+    /**
+     * 删除某个玩家的全部战绩行，返回删除的统计项条数。
+     *
+     * <p>只给 UUID 迁移用：数值并到新键之后旧行必须清掉，否则同一条命令再执行一次就会把成绩翻倍。</p>
+     */
+    int removeStats(UUID uuid);
+
     /** 断开连接 / 落盘。插件停用时调用，可重复调用。 */
     void close();
 }

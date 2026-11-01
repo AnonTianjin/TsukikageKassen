@@ -11,6 +11,7 @@ import com.taketori.kassen.core.match.sengoku.SengokuMode;
 import com.taketori.kassen.core.match.sengoku.SengokuRules;
 import com.taketori.kassen.core.match.sengoku.SiegeRules;
 import com.taketori.kassen.core.match.sengoku.TowerRules;
+import com.taketori.kassen.core.skill.PassiveDef;
 import com.taketori.kassen.core.skill.SkillDef;
 import com.taketori.kassen.core.skill.SkillSlot;
 import com.taketori.kassen.core.skill.ThirdSlotTrigger;
@@ -41,7 +42,7 @@ public final class ConfigManager {
      * <p>插件不会覆盖玩家的 weapons.yml，所以这里只用于"提示玩家模板已更新"——
      * 否则会出现"插件升级了但技能还是老样子"的困惑。</p>
      */
-    public static final int WEAPON_TEMPLATE_VERSION = 9;
+    public static final int WEAPON_TEMPLATE_VERSION = 10;
 
     private final TaketoriPlugin plugin;
     private final WeaponManager weapons = new WeaponManager();
@@ -266,27 +267,19 @@ public final class ConfigManager {
             String material = section.getString("material", "STICK");
             Map<String, Double> attributes = toDoubleMap(section.getConfigurationSection("attributes"));
 
-            Map<String, WeaponDef.ModeDef> modes = new LinkedHashMap<>();
-            ConfigurationSection modeSection = section.getConfigurationSection("modes");
-            if (modeSection != null) {
-                for (String modeId : modeSection.getKeys(false)) {
-                    ConfigurationSection mode = modeSection.getConfigurationSection(modeId);
-                    if (mode == null) {
-                        continue;
-                    }
-                    modes.put(modeId.toUpperCase(java.util.Locale.ROOT), new WeaponDef.ModeDef(
-                            modeId.toUpperCase(java.util.Locale.ROOT),
-                            mode.getString("display", modeId),
-                            parseSkills(mode.getConfigurationSection("skills"))));
+            // 被动（2.0）：独立段，不占按键槽位
+            PassiveDef passive = PassiveDef.of(parseSkill(section.getConfigurationSection("passive")));
+
+            // 物品附魔（如三叉戟的 loyalty: 3）
+            Map<String, Integer> enchantments = new LinkedHashMap<>();
+            ConfigurationSection enchantSection = section.getConfigurationSection("enchantments");
+            if (enchantSection != null) {
+                for (String key : enchantSection.getKeys(false)) {
+                    enchantments.put(key.toLowerCase(java.util.Locale.ROOT), enchantSection.getInt(key, 1));
                 }
             }
 
-            String defaultMode = section.getString("default-mode", modes.isEmpty() ? "" : modes.keySet().iterator().next());
-            if (defaultMode != null) {
-                defaultMode = defaultMode.toUpperCase(java.util.Locale.ROOT);
-            }
-
-            // 命中附加效果（hit-effects）：夕月的箭随机挂负面效果等
+            // 命中附加效果（hit-effects）：箭矢随机减益仍在用
             Map<String, Object> hitEffects = new LinkedHashMap<>();
             ConfigurationSection hitSection = section.getConfigurationSection("hit-effects");
             if (hitSection != null) {
@@ -301,9 +294,9 @@ public final class ConfigManager {
                     section.getInt("model-data", 0),
                     section.getStringList("lore"),
                     attributes,
-                    defaultMode,
-                    modes,
                     parseSkills(section.getConfigurationSection("skills")),
+                    passive,
+                    enchantments,
                     hitEffects);
             target.register(def);
         }
@@ -319,20 +312,29 @@ public final class ConfigManager {
             ConfigurationSection skill = section.getConfigurationSection(key);
             if (slot == null || skill == null) {
                 if (slot == null) {
-                    plugin.getLogger().warning("weapons.yml 出现未知按键槽位: " + key);
+                    plugin.getLogger().warning("weapons.yml 出现未知按键槽位: " + key
+                            + "（2.0 只支持 left / right / sneak，旧 shift-right / q 已下线）");
                 }
                 continue;
             }
-            String type = skill.getString("type", "");
-            double cooldown = skill.getDouble("cooldown", 0.0D);
-            Map<String, Object> params = new LinkedHashMap<>();
-            ConfigurationSection paramSection = skill.getConfigurationSection("params");
-            if (paramSection != null) {
-                params.putAll(paramSection.getValues(false));
-            }
-            result.put(slot, new SkillDef(type, cooldown, params));
+            result.put(slot, parseSkill(skill));
         }
         return result;
+    }
+
+    /** 解析单个技能段（type / cooldown / params）。被动段也复用这条路径。 */
+    private SkillDef parseSkill(ConfigurationSection skill) {
+        if (skill == null) {
+            return SkillDef.none();
+        }
+        String type = skill.getString("type", "");
+        double cooldown = skill.getDouble("cooldown", 0.0D);
+        Map<String, Object> params = new LinkedHashMap<>();
+        ConfigurationSection paramSection = skill.getConfigurationSection("params");
+        if (paramSection != null) {
+            params.putAll(paramSection.getValues(false));
+        }
+        return new SkillDef(type, cooldown, params);
     }
 
     private void parseCharacters(YamlConfiguration yaml, CharacterManager target) {
@@ -1074,17 +1076,13 @@ public final class ConfigManager {
     // ---- 输入与出生增益 ----
 
     /**
-     * 第三槽技能的触发键原始值（可多选，见 {@link ThirdSlotTrigger}）。
-     * 默认 {@code double-sneak}（双击潜行）：F 键在部分服务器会收不到事件，
-     * 潜行 + 右键则会被原版"对着方块"的分支吞掉，双击潜行不受这两点影响。
+     * 第三槽技能的触发键原始值。
+     *
+     * <p>2.0 起只有双击潜行一种实现；这个键只为兼容旧配置文件而保留，
+     * 旧写法（f / sneak-right / double-right / sneak-q）会在加载校验里被点名。</p>
      */
     public String shiftRightTrigger() {
-        return plugin.getConfig().getString("input.shift-right-trigger", "double-sneak");
-    }
-
-    /** 第三槽技能的触发方式集合（解析后的结果）。 */
-    public java.util.Set<ThirdSlotTrigger> thirdSlotTriggers() {
-        return ThirdSlotTrigger.parse(shiftRightTrigger());
+        return plugin.getConfig().getString("input.shift-right-trigger", ThirdSlotTrigger.DOUBLE_SNEAK);
     }
 
     /** 开局 / 复活的出生增益持续秒数（0 = 关闭）。 */
