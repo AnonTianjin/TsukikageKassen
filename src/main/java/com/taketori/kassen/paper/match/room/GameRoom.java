@@ -1704,6 +1704,11 @@ public final class GameRoom {
                 outpost.stop();
             }
         }
+        // 房间世界（模板拷贝）里的商店商人：配置里的大厅坐标在这里无效，按场地出生点生成。
+        // 战国模式不跑商店，别留两只点不开的村民。
+        if (!isSengoku() && plugin.shopNpc() != null) {
+            plugin.shopNpc().spawnForRoom(this);
+        }
         board.updateAll();
 
         // 包点：纯 PVP 才激活。PVE 只有一队（没人拆也没人守），战国凭击破天守阁定胜负，
@@ -2059,6 +2064,10 @@ public final class GameRoom {
         }
         if (sengokuMidMinions != null) {
             sengokuMidMinions.stop();
+        }
+        // 房间商人属于本局：收尾/重开/卸载都要清掉，别留在模板拷贝里跟着世界走。
+        if (plugin.shopNpc() != null) {
+            plugin.shopNpc().removeRoomNpc(this);
         }
     }
 

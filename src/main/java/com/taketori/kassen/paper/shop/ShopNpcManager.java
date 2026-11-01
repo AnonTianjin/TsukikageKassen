@@ -3,6 +3,8 @@ package com.taketori.kassen.paper.shop;
 import com.taketori.kassen.TaketoriPlugin;
 import com.taketori.kassen.core.match.TeamId;
 import com.taketori.kassen.paper.item.PDCKeys;
+import com.taketori.kassen.paper.match.ArenaDef;
+import com.taketori.kassen.paper.match.room.GameRoom;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
@@ -17,6 +19,7 @@ import org.bukkit.scheduler.BukkitTask;
 
 import java.util.ArrayList;
 import java.util.EnumMap;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -53,6 +56,9 @@ public final class ShopNpcManager {
 
     /** 看护任务句柄；{@link #stop()} 必须取消，否则重载插件会留下孤儿任务。 */
     private BukkitTask watchTask;
+
+    /** 房间（模板拷贝世界）里的商人：每个房间各一份，与大厅那只互不干扰。 */
+    private final Map<GameRoom, Map<TeamId, UUID>> roomNpcs = new HashMap<>();
 
     public ShopNpcManager(TaketoriPlugin plugin) {
         this.plugin = plugin;
@@ -151,9 +157,21 @@ public final class ShopNpcManager {
         double z = plugin.config().shopNpcZ(team);
         float yaw = plugin.config().shopNpcYaw(team);
         if (x == 0.0 && y == 0.0 && z == 0.0 && lobbySpawn != null) {
-            return new Location(world, lobbySpawn.getX(), lobbySpawn.getY(), lobbySpawn.getZ(), yaw, 0.0F);
+            // 两队都没填坐标时都会落到大厅出生点：按队各偏 1.5 格，别叠成一只。
+            return new Location(world, lobbySpawn.getX(), lobbySpawn.getY(), lobbySpawn.getZ(), yaw, 0.0F)
+                    .add(0.0, 0.0, offsetFor(team));
         }
         return new Location(world, x, y, z, yaw, 0.0F);
+    }
+
+    /** 两队配置坐标是否为"没填"（全 0）；是的话按队给一个左右错开的偏移，否则 0。 */
+    private double offsetFor(TeamId team) {
+        if (plugin.config().shopNpcX(team) == 0.0
+                && plugin.config().shopNpcY(team) == 0.0
+                && plugin.config().shopNpcZ(team) == 0.0) {
+            return team == TeamId.RED ? -1.5 : 1.5;
+        }
+        return 0.0;
     }
 
     /**
@@ -270,6 +288,75 @@ public final class ShopNpcManager {
         }
     }
 
+    // ---------------------------------------------------------------- 房间商人
+
+    /**
+     * 在房间（模板拷贝）世界里生成双方商人；对局开始时调用。
+     *
+     * <p>房间世界是每次开局从模板拷出来的，配置里那套大厅坐标在这里没有意义，
+     * 所以只用场地出生点做基准，往各队方向错开两格，避免两只商人叠在一起。
+     * 重复调用会先清掉上一局留下的，保证"一房间一队一只"。</p>
+     */
+    public void spawnForRoom(GameRoom room) {
+        if (room == null || room.world() == null) {
+            return;
+        }
+        removeRoomNpc(room);
+        Map<TeamId, UUID> ids = new EnumMap<>(TeamId.class);
+        for (TeamId team : TeamId.values()) {
+            Location location = roomNpcLocation(room, team);
+            if (location == null || location.getWorld() == null) {
+                continue;
+            }
+            Entity entity = location.getWorld().spawnEntity(location, EntityType.VILLAGER);
+            if (entity instanceof Villager villager) {
+                configure(villager, team);
+                ids.put(team, villager.getUniqueId());
+            } else {
+                entity.remove();
+            }
+        }
+        if (!ids.isEmpty()) {
+            roomNpcs.put(room, ids);
+        }
+    }
+
+    /** 房间商人的位置：场地出生点 + 按队错开两格；没配出生点返回 null（如 PVE 没有蓝队）。 */
+    private Location roomNpcLocation(GameRoom room, TeamId team) {
+        if (room == null) {
+            return null;
+        }
+        ArenaDef arena = room.arena();
+        World world = room.world();
+        if (arena == null || world == null) {
+            return null;
+        }
+        ArenaDef.Point spawn = arena.spawn(team);
+        if (spawn == null) {
+            return null;
+        }
+        return spawn.toLocation(world).add(0.0, 0.0, team == TeamId.RED ? 2.0 : -2.0);
+    }
+
+    /** 移除某房间里的商人（对局收尾/重开/房间卸载时调用）；没记录时静默返回。 */
+    public void removeRoomNpc(GameRoom room) {
+        if (room == null) {
+            return;
+        }
+        Map<TeamId, UUID> ids = roomNpcs.remove(room);
+        if (ids == null) {
+            return;
+        }
+        for (UUID id : ids.values()) {
+            Entity entity = Bukkit.getEntity(id);
+            if (entity != null) {
+                entity.remove();
+            }
+        }
+    }
+
+    // ---------------------------------------------------------------- 配置
+
     /**
      * 把一只村民按商店商人的规格配好。
      *
@@ -285,6 +372,8 @@ public final class ShopNpcManager {
         villager.setCollidable(false);
         villager.setGravity(false);
         villager.setPersistent(true);
+        // 即使有人把 view-distance 之外当成"远"来清理，也别让商人被当成远离玩家而移除。
+        villager.setRemoveWhenFarAway(false);
         // 给个职业，别让商人长得像刚出生的野村民：红队铁匠、蓝队工具匠。
         // 交易表用不上——右键在 ShopMenu 里就被取消了，原版交易界面根本弹不出来。
         villager.setProfession(team == TeamId.RED
@@ -307,9 +396,15 @@ public final class ShopNpcManager {
         if (raw == null || raw.isBlank()) {
             return Component.text(team.display());
         }
-        return raw.indexOf('§') >= 0
-                ? LegacyComponentSerializer.legacySection().deserialize(raw)
-                : MINI.deserialize(raw);
+        if (raw.indexOf('§') >= 0) {
+            return LegacyComponentSerializer.legacySection().deserialize(raw);
+        }
+        // 有些配置习惯写 &c 这种 & 色码（Bukkit 老写法）：legacySection 只认 §，
+        // 交给 MiniMessage 又会把 &c 原样显示，所以单独用 legacyAmpersand 解析。
+        if (raw.indexOf('&') >= 0) {
+            return LegacyComponentSerializer.legacyAmpersand().deserialize(raw);
+        }
+        return MINI.deserialize(raw);
     }
 
     /**
@@ -324,11 +419,24 @@ public final class ShopNpcManager {
             if (isNpcAlive(team)) {
                 continue;
             }
-            npcIds.remove(team);
+            // 注意：这里不要先 npcIds.remove(team)。区块未加载时 getEntity 查不到，
+            // 若此时丢掉 UUID，等区块加载回来就会把"还在的老商人"当成"没有"再生成一只；
+            // 真正要重生时 spawn() → removeNpc() 自会清掉旧记录。
             Location location = npcLocation(team);
-            if (location != null) {
-                spawn(team, location);
+            if (location == null) {
+                continue;
             }
+            World world = location.getWorld();
+            if (world == null) {
+                continue;
+            }
+            // 区块没加载时 Bukkit.getEntity(uuid) 恒定返回 null，会被误判成"商人死了"，
+            // 于是再生成一只——可那只其实还躺在未加载的区块里，等区块加载就成了两只。
+            // 这里先要求配置点区块已加载再补：未加载说明它只是"看不见"，不是"没了"。
+            if (!world.isChunkLoaded(location.getBlockX() >> 4, location.getBlockZ() >> 4)) {
+                continue;
+            }
+            spawn(team, location);
         }
     }
 
