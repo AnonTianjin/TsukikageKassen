@@ -105,10 +105,10 @@ public final class MySqlDataStore extends SqlDataStore {
     @Override
     protected String createStatsTableSql() {
         return "CREATE TABLE IF NOT EXISTS {p}stats ("
-                + "player_name VARCHAR(32) NOT NULL,"
+                + "uuid CHAR(36) NOT NULL,"
                 + "stat_key VARCHAR(48) NOT NULL,"
                 + "stat_value BIGINT NOT NULL DEFAULT 0,"
-                + "PRIMARY KEY (player_name, stat_key)"
+                + "PRIMARY KEY (uuid, stat_key)"
                 + ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4";
     }
 
@@ -120,7 +120,12 @@ public final class MySqlDataStore extends SqlDataStore {
 
     @Override
     protected String upsertStatSql() {
-        return "INSERT INTO {p}stats (player_name, stat_key, stat_value) VALUES (?, ?, ?) "
+        return "INSERT INTO {p}stats (uuid, stat_key, stat_value) VALUES (?, ?, ?) "
                 + "ON DUPLICATE KEY UPDATE stat_value = VALUES(stat_value)";
+    }
+
+    @Override
+    protected String renameLegacyStatsTableSql() {
+        return "RENAME TABLE {p}stats TO {p}stats_legacy";
     }
 }

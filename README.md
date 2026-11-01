@@ -194,7 +194,11 @@ c. 手头没有地图、只想先试一局：生成一张空白平坦模板：
 
 等待人数达到 `waiting.min-players`（默认 2）后房间自动开始倒计时（默认 90 秒；人数过半场（3v3 的第 4 人起）压缩到 30 秒；满员切 5 秒；有人退出人数不足则取消），归零后分队进出生点玻璃笼、解笼开战；结算后在线者自动回大厅并返还封存状态，房间世界随即删除。
 
-对局中队友掉线：槽位释放可被补位；`room.understaffed-grace-seconds`（默认 60 秒）内无人补位则缺人队判负、本场提前结束。落后方也可用 `/taketori surrender` 发起投降表决（半数以上在线队友同意即结束）。
+对局中队友掉线：槽位释放可被补位；`room.understaffed-grace-seconds`（默认 60 秒）内无人补位则缺人队判负、本场提前结束。
+
+掉线与「代理下切到别的服」在服务端是同一个退出事件，走同一套处理：背包封存进离线暂存，
+`room.rejoin-seconds`（默认 300 秒）内回来自动回原房原队；超时后槽位释放给补位，
+此后回来只有**原队伍还没满员**才能重新加入，满员会被拒绝（背包照常返还）。落后方也可用 `/taketori surrender` 发起投降表决（半数以上在线队友同意即结束）。
 
 管理员也可以手动控制（可带房间 id 只作用于指定房间）：
 
@@ -391,7 +395,8 @@ PVE 月人入侵：所有人同一队、不占点、玩家之间默认无伤害�
 - 等待与倒计时：进房即封存自带状态（背包 / 血量 / 药水 / 游戏模式），等待区倒计时三档；
 - 观战：聊天栏给出可点击的「退出观战」按钮并定期重发；阵亡自动旁观，
   屏幕上方 BossBar 显示复活倒计时，结束回己方出生点复活；
-- 跨局战绩：总积分 / 胜场 / 击杀 / 拆家等写入 `data/stats.yml`，`/taketori ranks` 图形查看；
+- 跨局战绩：总积分 / 胜场 / 击杀 / 拆家等按 UUID 写入 `data/stats.yml`，`/taketori ranks` 图形查看；
+- 基岩版（Floodgate）：不需要额外配置。Floodgate 的 UUID 由 XUID 派生、跨重启稳定，重连会话 / 队伍 / 封存背包 / 战绩全部照常；只有显示名默认去掉 `username-prefix`（`floodgate` 段可改），没装 Floodgate 时这段静默不生效；
 - 菜单时钟：进服发放的道具，右键打开玩家菜单（匹配 / 队伍 / 角色 / 排行榜），丢不掉。
 
 ### 3.7 多世界兼容
@@ -558,7 +563,7 @@ PVE 月人入侵：所有人同一队、不占点、玩家之间默认无伤害�
 | --- | --- | --- |
 | `match` | `mode` / `score-to-win` / `time-limit-minutes` / `team-size` / `respawn-delay-seconds` / `keep-inventory` | pvp / 600 / 20 / 3 / 5 / true |
 | `waiting` | `min-players` / `countdown-seconds` / `half-countdown-seconds` / `full-countdown-seconds` / `cage-hold-seconds` / `end-delay-seconds` / `cage-material` / `pve-full-players` / `void-y-offset` / `protect` | 2 / 90 / 30 / 5 / 3 / 5 / GLASS / 0（取 team-size）/ -10 / true |
-| `room` | `max-rooms` / `max-rooms-per-player` / `world-prefix` / `default-template` / `empty-dispose-seconds` / `understaffed-grace-seconds` | 8 / 1 / kassen_ / tsukuyomi / 60 / 60 |
+| `room` | `max-rooms` / `max-rooms-per-player` / `world-prefix` / `default-template` / `empty-dispose-seconds` / `understaffed-grace-seconds` / `rejoin-seconds` | 8 / 1 / kassen_ / tsukuyomi / 60 / 60 / 300 |
 | `scoring` | `minion-kill` / `player-kill` / `base-capture` | 3 / 10 / 50 |
 | `combat` | `kill-heal` / `minion-kill-heal` / `friendly-fire-protection` / `third-slot-buff` / `match-saturation` | 6.0 / 0.0 / auto / 2 秒跳跃提升 V / true（对局内自动饱和） |
 | `loadout` | `armor-enabled` / `armor-material` / `armor-protection` | true / IRON / 2（保护 II） |
@@ -577,6 +582,7 @@ PVE 月人入侵：所有人同一队、不占点、玩家之间默认无伤害�
 | `setup-wand` | `enabled` / `material` / `loot-material` / `give-on-join` | true / NETHERITE_HOE / STRUCTURE_VOID / false |
 | `loot` | `enabled` / `interval-seconds` / `max-drops` / `items` | true / 30 / 6 / 道具池 |
 | `tags` | `default` / `vip` / `staff` 的权重 | 0 / 10 / 100 |
+| `floodgate` | `username-prefix` / `strip-prefix` | `.` / true（装了 Floodgate 时去掉基岩名前缀；不装不生效） |
 
 ### 数据存储（yaml / sqlite / mysql）
 
@@ -611,8 +617,11 @@ storage:
 - **失败自动回退**：驱动缺失、库连不上、账号没权限时，控制台记一条 SEVERE 并回退 YAML，插件照常运行；
   启动日志会打印「数据后端：…」，一眼能看出实际用的是哪个。
 - **切换只在启用时生效**：`/taketori reload` 不会热切数据库，换后端请重启服务器。
-- 两套 SQL 表结构一致：`players(uuid, character_id, tag_id)`、`stats(player_name, stat_key, stat_value)`；
+- 两套 SQL 表结构一致：`players(uuid, character_id, tag_id)`、`stats(uuid, stat_key, stat_value)`；
   统计键名沿用 `stats.yml` 的字段名（`total-score` / `kills` / …），所以 YAML 与 SQL 之间可以手工搬迁。
+- 两张表都以玩家 **UUID** 为键，昵称只用于排行榜显示：改名不会把战绩裂成两条，重名也不会并成一条。
+  老版本按玩家名存的战绩（`stats(player_name, …)`）在启动时自动改名为 `<前缀>stats_legacy`，
+  并按本地 usercache 尽力迁到 UUID；查不到 UUID 的行留在 legacy 表里，不会丢。
 
 ### 数值文件（插件不会覆盖）
 

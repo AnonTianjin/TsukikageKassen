@@ -156,6 +156,8 @@ public final class TaketoriPlugin extends JavaPlugin {
     private ShopNpcManager shopNpc;
     /** 队伍商店界面（右键商人打开，购买由 GameRoom 裁决）。 */
     private ShopMenu shopMenu;
+    /** Floodgate（基岩版）显示名适配；没装 Floodgate 时全部退化为原行为。 */
+    private com.taketori.kassen.paper.integration.BedrockSupport bedrock;
 
     /** 插件自身造成的伤害标记：防止与近战改写逻辑互相递归。 */
     private final Set<UUID> internalDamage = ConcurrentHashMap.newKeySet();
@@ -175,6 +177,8 @@ public final class TaketoriPlugin extends JavaPlugin {
         }
 
         items = new ItemFactory(this, versions);
+        // 基岩版（Floodgate）适配：只影响显示名，UUID 键的数据链路一行不改
+        bedrock = new com.taketori.kassen.paper.integration.BedrockSupport(this);
         loadTags();
         fx = new Fx(config, versions);
         damageNumbers = new com.taketori.kassen.paper.effect.DamageNumbers(this);
@@ -1184,6 +1188,11 @@ public final class TaketoriPlugin extends JavaPlugin {
     /** 断线重连管理。 */
     public com.taketori.kassen.paper.match.RejoinManager rejoin() {
         return rejoin;
+    }
+
+    /** Floodgate（基岩版）显示名适配。 */
+    public com.taketori.kassen.paper.integration.BedrockSupport bedrock() {
+        return bedrock;
     }
 
     /** 划场地一条龙会话管理。 */

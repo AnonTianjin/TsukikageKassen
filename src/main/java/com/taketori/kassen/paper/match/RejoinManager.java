@@ -15,11 +15,13 @@ import java.util.concurrent.ConcurrentHashMap;
  *
  * <p>参考 BedWars 的 RejoinSession / rejoin-time，并复用本项目已有的掉线兜底：</p>
  * <ul>
- *   <li>断线时沿用既有流程（playerRooms 移除、teams 条目保留、背包转全局暂存），
- *       这里只<b>追加登记</b>一条重连会话；</li>
+ *   <li>断线 / 换服时沿用既有流程（playerRooms 移除、teams 条目保留、背包转全局暂存），
+ *       这里只<b>追加登记</b>一条重连会话；Bukkit 端无法区分「切到别的服」与「掉线」，
+ *       两条路径共用同一套封存与恢复逻辑；</li>
  *   <li>重连时若会话未过期且房间还在 → 自动恢复：重新绑定房间映射、传送回本队出生点、
  *       还原背包、重新显示记分板并广播回归；</li>
- *   <li>过期 / 房间已回收 → 什么都不做，由 PlayerListener 既有逻辑返还背包；</li>
+ *   <li>会话过期但房间还在 → 槽位已释放，<b>原队伍未满员</b>才允许重新加入，满员则拒绝；</li>
+ *   <li>房间已回收 → 什么都不做，由 PlayerListener 既有逻辑返还背包；</li>
  *   <li>时限配置 {@code room.rejoin-seconds}（默认 300；0 = 关闭重连）。</li>
  * </ul>
  */
@@ -32,6 +34,12 @@ public final class RejoinManager {
     private final TaketoriPlugin plugin;
     /** 玩家 → 重连会话（主线程读写；ConcurrentHashMap 防御异步清理路径）。 */
     private final Map<UUID, RejoinSession> sessions = new ConcurrentHashMap<>();
+    /**
+     * 已过期、但房间还在的会话：不再占位（{@link #hasSession(UUID)} 为 false），只作为
+     * 「他原本在哪个房、哪一队」的线索。玩家超时回来时靠它判断原队伍还有没有空位，
+     * 有就重新加入、没有就拒绝；房间回收时随 {@link #forgetRoom(String)} 一并清掉。
+     */
+    private final Map<UUID, RejoinSession> expired = new ConcurrentHashMap<>();
 
     public RejoinManager(TaketoriPlugin plugin) {
         this.plugin = plugin;
@@ -61,35 +69,68 @@ public final class RejoinManager {
     /**
      * 玩家上线 / 执行 rejoin：尝试恢复到原房原队。
      *
-     * @return true = 已恢复（调用方跳过其余加入流程）；false = 无可用会话
-     *         （过期会话已清理，由既有 restoreOfflineBackup 兜底返还背包）
+     * <p>两条来源分开处理：</p>
+     * <ul>
+     *   <li>窗口内回来（活跃会话）：队伍条目还占着，直接回原队；</li>
+     *   <li>窗口过了才回来（过期会话）：槽位已被释放，<b>原队伍没满员</b>就重新占回去，
+     *       满员则拒绝并提示（背包由 {@code restoreOfflineBackup} 照常返还）。</li>
+     * </ul>
+     *
+     * @return true = 已恢复（调用方跳过其余加入流程）；false = 无可用会话 / 房间已结束 /
+     *         原队伍已满员
      */
     public boolean tryRejoin(Player player) {
         if (player == null || !player.isOnline()) {
             return false;
         }
         UUID id = player.getUniqueId();
-        RejoinSession session = sessions.get(id);
-        if (session == null) {
+        // 已经在某个房间里（手动 /taketori rejoin 时可能发生）：不把人从别的房间拽走
+        if (plugin.rooms().roomOf(id) != null) {
+            return false;
+        }
+        long now = System.currentTimeMillis();
+        RejoinSession active = sessions.get(id);
+        if (active != null && active.expiresAtMillis() < now) {
+            // 会话刚好过期：转为"仅保留原队伍线索"的过期会话，继续尝试重新加入
+            sessions.remove(id);
+            expired.put(id, active);
+            active = null;
+        }
+        RejoinSession stale = expired.get(id);
+        RejoinSession ref = active != null ? active : stale;
+        if (ref == null) {
             return false;
         }
         sessions.remove(id);
-        if (session.expiresAtMillis() < System.currentTimeMillis()) {
-            player.sendMessage(plugin.config().messages().get("rejoin.expired"));
-            return false;
-        }
-        GameRoom room = plugin.rooms().room(session.roomId());
-        if (room == null || !session.team().equals(room.teamOf(id)) || !room.isRunning()) {
-            player.sendMessage(plugin.config().messages().get("rejoin.gone"));
-            // 释放掉线时占住的队伍条目（quitMatchKeepEntry 留下的），让槽位回归补位池
+        expired.remove(id);
+
+        GameRoom room = plugin.rooms().room(ref.roomId());
+        TeamId team = ref.team();
+        if (room == null || !room.isMatchInProgress()) {
+            player.sendMessage(plugin.config().messages().get(
+                    active != null ? "rejoin.gone" : "rejoin.expired"));
+            // 房间还在但已经结束/回收中：把断线时占住的条目一并释放
             if (room != null) {
                 room.quitMatch(id);
             }
             return false;
         }
+        boolean holdsSlot = team.equals(room.teamOf(id));
+        if (!canRejoinTeam(room, team, holdsSlot)) {
+            // 原队伍满员：不能挤回去。占位若还在就释放，让槽位回归补位池
+            if (holdsSlot) {
+                room.quitMatch(id);
+            }
+            player.sendMessage(plugin.config().messages().get("rejoin.team-full"));
+            return false;
+        }
+        if (!holdsSlot) {
+            // 槽位已被释放（会话过期/被清理），但原队伍还缺人：重新占回原队
+            room.join(player, team);
+        }
         // 恢复房间映射与现场：队伍条目断线时本来就保留，这里补回映射与传送
         plugin.rooms().attachAfterRejoin(player, room);
-        ArenaDef.Point spawnPoint = room.arena().spawn(session.team());
+        ArenaDef.Point spawnPoint = room.arena().spawn(team);
         if (spawnPoint != null) {
             player.teleport(spawnPoint.toLocation(room.world()));
         }
@@ -118,17 +159,37 @@ public final class RejoinManager {
         return true;
     }
 
+    /**
+     * 原队伍还有没有位置：占位还在时算上他自己（{@code members <= cap} 即可），
+     * 占位已释放时他要额外占一个（{@code members < cap}）。PVE 不分边，上限取房间总人数。
+     */
+    private boolean canRejoinTeam(GameRoom room, TeamId team, boolean holdsSlot) {
+        if (team == null) {
+            return false;
+        }
+        int cap = room.isPve() ? room.maxPlayers() : room.teamSizeCap();
+        int members = room.rosterSize(team);
+        return holdsSlot ? members <= cap : members < cap;
+    }
+
     /** 房间销毁时清掉指向它的全部会话（避免悬挂 roomId）。 */
     public void forgetRoom(String roomId) {
         if (roomId == null) {
             return;
         }
-        Iterator<Map.Entry<UUID, RejoinSession>> iterator = sessions.entrySet().iterator();
-        while (iterator.hasNext()) {
-            if (roomId.equals(iterator.next().getValue().roomId())) {
-                iterator.remove();
-            }
+        sessions.entrySet().removeIf(entry -> roomId.equals(entry.getValue().roomId()));
+        expired.entrySet().removeIf(entry -> roomId.equals(entry.getValue().roomId()));
+    }
+
+    /**
+     * 只清某个房间的过期线索：房间复用进入新一局时调用，避免上一局的"原队伍"记录
+     * 把玩家塞进新一局的队伍。活跃会话不动——窗口内的占位仍然有效。
+     */
+    public void forgetExpired(String roomId) {
+        if (roomId == null) {
+            return;
         }
+        expired.entrySet().removeIf(entry -> roomId.equals(entry.getValue().roomId()));
     }
 
     /** 由房间 tick 顺带清理过期会话（防长期累积），并释放掉线时占住的队伍条目。 */
@@ -141,9 +202,12 @@ public final class RejoinManager {
                 continue;
             }
             iterator.remove();
+            // 过期不等于作废：留一条线索，玩家之后回来仍能凭原队伍重新加入（未满员时）
+            expired.put(entry.getKey(), entry.getValue());
             // 掉线玩家没在窗口内回来：释放 quitMatchKeepEntry 留下的队伍条目，槽位回归补位池
             GameRoom room = plugin.rooms().room(entry.getValue().roomId());
             if (room == null) {
+                expired.remove(entry.getKey());
                 continue;
             }
             room.quitMatch(entry.getKey());
@@ -162,6 +226,7 @@ public final class RejoinManager {
     /** 插件卸载时清空。 */
     public void clearAll() {
         sessions.clear();
+        expired.clear();
     }
 
     /** 该玩家是否有一条未过期的重连会话（"已离局占位"的判定依据）。 */

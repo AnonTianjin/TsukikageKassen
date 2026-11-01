@@ -8,7 +8,9 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -54,6 +56,9 @@ public abstract class SqlDataStore implements DataStore {
 
     protected abstract String upsertStatSql();
 
+    /** 把老结构（按 player_name 主键）的战绩表改名保留，语句里带 {@code {p}}。 */
+    protected abstract String renameLegacyStatsTableSql();
+
     /** 驱动类名，用于给出「缺依赖」时的可读报错。 */
     protected abstract String driverClass();
 
@@ -69,7 +74,102 @@ public abstract class SqlDataStore implements DataStore {
         connection = openConnection();
         try (Statement statement = connection.createStatement()) {
             statement.execute(sql(createPlayersTableSql()));
+            // 老版本战绩表以玩家名为主键：先改名保留并取出旧行，建完新表后再尽力迁过来
+            List<String[]> legacyStats = detachLegacyStatsTable(statement);
             statement.execute(sql(createStatsTableSql()));
+            if (legacyStats != null) {
+                migrateLegacyStats(legacyStats);
+            }
+        }
+    }
+
+    /**
+     * 若 {@code {p}stats} 还是「player_name 主键」的老结构，把它改名为 {@code {p}stats_legacy}
+     * 并返回全部旧行（name / stat_key / stat_value）；已是新结构或表不存在时返回 {@code null}。
+     *
+     * <p>改名而不是删表：无法映射到 UUID 的旧行只能留在 legacy 表里，不能静默丢掉。</p>
+     */
+    private List<String[]> detachLegacyStatsTable(Statement statement) {
+        if (!readable(statement, "SELECT COUNT(*) FROM " + table("stats"))) {
+            return null;              // 表还不存在
+        }
+        if (readable(statement, "SELECT uuid FROM " + table("stats") + " LIMIT 1")) {
+            return null;              // 已经是 uuid 结构
+        }
+        List<String[]> rows = new ArrayList<>();
+        try (ResultSet rs = statement.executeQuery(
+                "SELECT player_name, stat_key, stat_value FROM " + table("stats"))) {
+            while (rs.next()) {
+                rows.add(new String[]{rs.getString(1), rs.getString(2), rs.getString(3)});
+            }
+        } catch (SQLException ex) {
+            plugin.getLogger().log(Level.WARNING, "[" + backend() + "] 读取旧战绩表失败，保持原样不迁移", ex);
+            return null;
+        }
+        try {
+            // 上一轮迁移可能已留下 legacy 表；主数据在新表里，这里直接覆盖
+            statement.executeUpdate(sql("DROP TABLE IF EXISTS {p}stats_legacy"));
+            statement.executeUpdate(sql(renameLegacyStatsTableSql()));
+        } catch (SQLException ex) {
+            plugin.getLogger().log(Level.SEVERE, "[" + backend()
+                    + "] 旧战绩表改名失败，本轮不迁移（数据未改动）", ex);
+            return null;
+        }
+        return rows;
+    }
+
+    /** 把旧行按 usercache 映射到 UUID 后写入新表；查不到 UUID 的行留在 legacy 表。 */
+    private void migrateLegacyStats(List<String[]> rows) {
+        int migrated = 0;
+        int skipped = 0;
+        try (PreparedStatement ps = connection.prepareStatement(sql(upsertStatSql()))) {
+            for (String[] row : rows) {
+                UUID uuid = cachedUuid(row[0]);
+                if (uuid == null || row[1] == null || row[1].isBlank()) {
+                    skipped++;
+                    continue;
+                }
+                ps.setString(1, uuid.toString());
+                ps.setString(2, row[1]);
+                ps.setLong(3, parseLong(row[2]));
+                ps.addBatch();
+                migrated++;
+            }
+            ps.executeBatch();
+        } catch (SQLException ex) {
+            plugin.getLogger().log(Level.SEVERE, "[" + backend() + "] 旧战绩迁移失败", ex);
+            return;
+        }
+        plugin.getLogger().info("[" + backend() + "] 战绩表已改为 UUID 键：迁移 " + migrated + " 行"
+                + (skipped > 0 ? "，" + skipped + " 行查不到 UUID，保留在 " + table("stats_legacy") : ""));
+    }
+
+    private static boolean readable(Statement statement, String query) {
+        try (ResultSet rs = statement.executeQuery(query)) {
+            return true;
+        } catch (SQLException ex) {
+            return false;
+        }
+    }
+
+    private static long parseLong(String raw) {
+        try {
+            return raw == null ? 0L : Long.parseLong(raw.trim());
+        } catch (NumberFormatException ex) {
+            return 0L;
+        }
+    }
+
+    /** 玩家名 → UUID，只用本地 usercache（{@code getOfflinePlayer(String)} 会联网，启动时不能用）。 */
+    private static UUID cachedUuid(String name) {
+        if (name == null || name.isBlank()) {
+            return null;
+        }
+        try {
+            org.bukkit.OfflinePlayer cached = org.bukkit.Bukkit.getOfflinePlayerIfCached(name);
+            return cached == null ? null : cached.getUniqueId();
+        } catch (RuntimeException ex) {
+            return null;
         }
     }
 
@@ -198,19 +298,19 @@ public abstract class SqlDataStore implements DataStore {
     // ---------------------------------------------------------------- 战绩
 
     @Override
-    public Map<String, Map<String, Long>> loadStats() {
-        Map<String, Map<String, Long>> result = new LinkedHashMap<>();
-        String query = "SELECT player_name, stat_key, stat_value FROM " + table("stats");
+    public Map<UUID, Map<String, Long>> loadStats() {
+        Map<UUID, Map<String, Long>> result = new LinkedHashMap<>();
+        String query = "SELECT uuid, stat_key, stat_value FROM " + table("stats");
         synchronized (this) {
             try (PreparedStatement ps = connection().prepareStatement(query);
                  ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
-                    String name = rs.getString(1);
+                    UUID uuid = parseUuid(rs.getString(1));
                     String key = rs.getString(2);
-                    if (name == null || key == null) {
+                    if (uuid == null || key == null) {
                         continue;
                     }
-                    result.computeIfAbsent(name, ignored -> new LinkedHashMap<>())
+                    result.computeIfAbsent(uuid, ignored -> new LinkedHashMap<>())
                             .put(key, rs.getLong(3));
                 }
             } catch (SQLException ex) {
@@ -221,16 +321,16 @@ public abstract class SqlDataStore implements DataStore {
     }
 
     @Override
-    public void saveStats(Map<String, Map<String, Long>> stats) {
+    public void saveStats(Map<UUID, Map<String, Long>> stats) {
         if (stats == null || stats.isEmpty()) {
             return;
         }
         String sql = sql(upsertStatSql());
         synchronized (this) {
             try (PreparedStatement ps = connection().prepareStatement(sql)) {
-                for (Map.Entry<String, Map<String, Long>> entry : stats.entrySet()) {
-                    String name = entry.getKey();
-                    if (name == null || name.isBlank() || entry.getValue() == null) {
+                for (Map.Entry<UUID, Map<String, Long>> entry : stats.entrySet()) {
+                    UUID uuid = entry.getKey();
+                    if (uuid == null || entry.getValue() == null) {
                         continue;
                     }
                     for (Map.Entry<String, Long> stat : entry.getValue().entrySet()) {
@@ -238,7 +338,7 @@ public abstract class SqlDataStore implements DataStore {
                         if (value == 0L) {
                             continue;
                         }
-                        ps.setString(1, name);
+                        ps.setString(1, uuid.toString());
                         ps.setString(2, stat.getKey());
                         ps.setLong(3, value);
                         ps.addBatch();

@@ -302,10 +302,7 @@ public final class PartyManager {
     /** 成员显示名：在线取在线名，离线取缓存的（getOfflinePlayer(UUID) 不做网络查询）。 */
     private String nameOf(UUID uuid) {
         Player player = Bukkit.getPlayer(uuid);
-        if (player != null) {
-            return player.getName();
-        }
-        String name = Bukkit.getOfflinePlayer(uuid).getName();
-        return name == null ? "未知玩家" : name;
+        String name = plugin.bedrock().displayName(uuid, player == null ? null : player.getName());
+        return name == null || name.isBlank() ? "未知玩家" : name;
     }
 }

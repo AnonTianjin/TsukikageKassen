@@ -1220,6 +1220,19 @@ public final class ConfigManager {
         return plugin.getConfig().getString("worlds.broadcast-scope", "world");
     }
 
+    // ---- Floodgate（基岩版）显示名 ----
+
+    /** 是否把基岩版玩家名前的 Floodgate 前缀剥掉（默认 true）。 */
+    public boolean floodgateStripPrefix() {
+        return plugin.getConfig().getBoolean("floodgate.strip-prefix", true);
+    }
+
+    /** 基岩名前缀，应与 Floodgate 的 {@code username-prefix} 保持一致（默认 {@code .}）。 */
+    public String floodgatePrefix() {
+        String raw = plugin.getConfig().getString("floodgate.username-prefix", ".");
+        return raw == null ? "" : raw;
+    }
+
     /**
      * 进服"送大厅"的世界白名单。
      *

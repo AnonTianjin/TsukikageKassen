@@ -154,18 +154,14 @@ public final class StatsMenu implements Listener {
                     continue;
                 }
                 lore.add(MINI.deserialize("<dark_gray>" + each.display() + "：<white>"
-                        + plugin.stats().valueOf(row.name(), each)));
+                        + plugin.stats().valueOf(row.uuid(), each)));
             }
             lore.add(Component.empty());
             lore.add(MINI.deserialize("<yellow>点击在聊天栏查看详情"));
             meta.lore(lore);
             if (material == Material.PLAYER_HEAD && meta instanceof SkullMeta skull) {
-                // 只用非阻塞的本地缓存查询：Bukkit.getOfflinePlayer(String) 在 usercache
-                // 缺失该名字时会发起阻塞式 Web 查询，直接冻结主线程
-                org.bukkit.OfflinePlayer cached = Bukkit.getOfflinePlayerIfCached(row.name());
-                if (cached != null) {
-                    skull.setOwningPlayer(cached);
-                }
+                // 按 UUID 取头颅：只查本地 usercache，不会像 getOfflinePlayer(String) 那样联网阻塞
+                skull.setOwningPlayer(Bukkit.getOfflinePlayer(row.uuid()));
             }
         });
         return item;
@@ -225,7 +221,7 @@ public final class StatsMenu implements Listener {
         player.sendMessage(MINI.deserialize("<dark_gray>────────── <white>" + row.name() + " <dark_gray>──────────"));
         for (Stat stat : plugin.stats().stats()) {
             player.sendMessage(MINI.deserialize("<gray>" + stat.display() + "：<white>"
-                    + plugin.stats().valueOf(row.name(), stat)));
+                    + plugin.stats().valueOf(row.uuid(), stat)));
         }
     }
 }

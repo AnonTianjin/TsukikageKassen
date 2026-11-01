@@ -885,7 +885,8 @@ public final class GameRoom {
         return null;
     }
 
-    private int rosterSize(TeamId team) {
+    /** 某队当前占位数（含断线后仍保留重连窗口的条目）。 */
+    public int rosterSize(TeamId team) {
         int count = 0;
         for (TeamId value : teams.values()) {
             if (value == team) {
@@ -1320,11 +1321,11 @@ public final class GameRoom {
             return "-";
         }
         String name = playerNames.get(uuid);
-        if (name != null) {
-            return name;
+        if (name == null) {
+            Player player = Bukkit.getPlayer(uuid);
+            name = player == null ? null : player.getName();
         }
-        Player player = Bukkit.getPlayer(uuid);
-        return player != null ? player.getName() : uuid.toString().substring(0, 8);
+        return plugin.bedrock().displayName(uuid, name);
     }
 
     // ---------------------------------------------------------------- 生命周期
@@ -1667,6 +1668,8 @@ public final class GameRoom {
         phase = Phase.PLAYING;
         startedAt = System.currentTimeMillis();
         endedAt = 0L;
+        // 房间复用进新一局：上一局的"原队伍"重连线索作废，否则可被拿来插进新局队伍
+        plugin.rejoin().forgetExpired(id());
 
         // 战国模式：只跑自己的组件，刻意【不】启动月人、道具、基地占点与基地标记。
         // 那一套会给对局分（addScore）并在达到 score-to-win 时调 finish()，
@@ -3011,10 +3014,10 @@ public final class GameRoom {
             plugin.stats().recordMatch(winnerTeam, teamScores, playerScores, playerNames);
             if (winnerTeam != null) {
                 // 结算名单走整局成员缓存（rosterCache）：掉线的队友同样记为胜方
-                List<String> winners = new ArrayList<>();
+                List<UUID> winners = new ArrayList<>();
                 for (Map.Entry<UUID, TeamId> entry : rosterCache.entrySet()) {
                     if (entry.getValue() == winnerTeam) {
-                        winners.add(nameOf(entry.getKey()));
+                        winners.add(entry.getKey());
                     }
                 }
                 plugin.stats().recordWin(winners);

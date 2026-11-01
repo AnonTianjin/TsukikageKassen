@@ -4,6 +4,8 @@ main: com.taketori.kassen.TaketoriPlugin
 # 26.1 起 Bukkit 接受完整的「年.版本.补丁」写法。目标服务端是 Paper 26.1.2，因此写全。
 # 写低了服务端会禁用新版 API，写高了则直接拒绝加载。
 api-version: '26.1.2'
+# 可选：装了 Floodgate 时借用它的 API 取基岩版玩家原名并去前缀（反射访问，不内嵌依赖）
+softdepend: [ floodgate ]
 description: '月影合战：9 名角色 / 20 把武器 / 20 种技能 + 队伍商店（拆弹钳 / 地雷），3v3 与 PVE（据点保卫、大波次）玩法，支持多世界服务器'
 authors: [ AnonTianjin ]
 website: 'https://github.com/AnonTianjin/TsukikageKassen'

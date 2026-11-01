@@ -34,6 +34,10 @@ public final class PlayerListener implements Listener {
         if (characterId != null && plugin.config().characters().has(characterId)) {
             plugin.config().characters().bind(player.getUniqueId(), characterId);
         }
+        // 基岩版（Floodgate）玩家 Bukkit 侧名字带前缀：进服先记一次去前缀的显示名，
+        // 排行榜与结算播报就不必再依赖 usercache（基岩 UUID 的缓存名常常是空的）
+        plugin.stats().rememberName(player.getUniqueId(),
+                plugin.bedrock().displayName(player.getUniqueId(), player.getName()));
         // 断线重连：对局中掉线者在时限内自动回到原房原队（含背包快照还原/传送/记分板）。
         // 成功则跳过其余加入流程——不送大厅、不自动发武器（背包已由快照还原，重复发放会刷物品）。
         if (plugin.rejoin().tryRejoin(player)) {

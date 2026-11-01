@@ -1,14 +1,27 @@
-# 这里是一个示例 .cnb.yml
-  
-  # 匹配main分支
-  main:
-    # 触发事件为 push 事件
-    push:
-      # 这里是阶段任务示例，可配置任意多个阶段，这里以一个阶段为例
-      - name: "your first CNB building"
-        stages:
-          # 使用流水线输出你的构建配置数据
-          - name: echo your build data
-            script: echo ${CNB_BUILD_USER} 通过 ${CNB_BRANCH} 分支触发了 ${CNB_EVENT} 事件
-  
-  # 更多资料见 https://docs.cnb.cool/build/quick-start.html
+# 构建环境：image/Dockerfile（JDK 25 + Node + curl），与本地实测一致
+#   - 插件 target: Paper 26.1.2（api-version 26.1.2）
+#   - 假人冒烟: Paper 26.1.2 build 74 + mineflayer 26.1.2 协议
+
+main:
+  # 推送即跑：编译 + 三道护栏（core 纯度 / 参数键 / 离线断言）
+  push:
+    - name: build
+      docker:
+        build: image/Dockerfile
+      stages:
+        - name: gradle build
+          script: ./gradlew build --console=plain --no-daemon
+        - name: 产物清单
+          script: ls -l build/libs
+
+  # 页面手动触发：真起一个 Paper 服务器，用假人连进去验证插件加载与指令响应
+  # 需要真机环境（下载 Paper、开世界、跑 npm）时用这条，不占用每次 push 的时间
+  web_trigger:
+    - name: smoke-test
+      docker:
+        build: image/Dockerfile
+      stages:
+        - name: gradle build
+          script: ./gradlew build --console=plain --no-daemon
+        - name: 起服 + 假人冒烟
+          script: bash tools/smoke-test.sh

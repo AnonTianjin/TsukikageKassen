@@ -1,5 +1,6 @@
 package com.taketori.kassen.data;
 
+import org.bukkit.OfflinePlayer;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.plugin.Plugin;
@@ -27,6 +28,11 @@ public final class YamlDataStore implements DataStore {
     private final Plugin plugin;
     private final YamlPlayerDataStore players;
     private final File statsFile;
+    /**
+     * 老格式（以玩家名为键）里无法映射到 UUID 的行：读取时原样留存，写回时照旧写出去，
+     * 保证升级不会把历史战绩删掉。
+     */
+    private final Map<String, Map<String, Long>> unmappedLegacyRows = new LinkedHashMap<>();
 
     public YamlDataStore(Plugin plugin) {
         this.plugin = plugin;
@@ -94,8 +100,9 @@ public final class YamlDataStore implements DataStore {
     // ---------------------------------------------------------------- 战绩
 
     @Override
-    public Map<String, Map<String, Long>> loadStats() {
-        Map<String, Map<String, Long>> result = new LinkedHashMap<>();
+    public Map<UUID, Map<String, Long>> loadStats() {
+        Map<UUID, Map<String, Long>> result = new LinkedHashMap<>();
+        unmappedLegacyRows.clear();
         if (!statsFile.exists()) {
             return result;
         }
@@ -104,36 +111,68 @@ public final class YamlDataStore implements DataStore {
         if (root == null) {
             return result;
         }
-        for (String name : root.getKeys(false)) {
-            ConfigurationSection section = root.getConfigurationSection(name);
+        int migrated = 0;
+        int unmapped = 0;
+        for (String key : root.getKeys(false)) {
+            ConfigurationSection section = root.getConfigurationSection(key);
             if (section == null) {
                 continue;
             }
             Map<String, Long> row = new LinkedHashMap<>();
-            for (String key : section.getKeys(false)) {
-                row.put(key, section.getLong(key, 0L));
+            for (String statKey : section.getKeys(false)) {
+                row.put(statKey, section.getLong(statKey, 0L));
             }
-            if (!row.isEmpty()) {
-                result.put(name, row);
+            if (row.isEmpty()) {
+                continue;
             }
+            UUID uuid = parseUuid(key);
+            if (uuid != null) {
+                result.put(uuid, row);
+                continue;
+            }
+            // 老格式：键是玩家名。只用 usercache 里已有的映射，绝不发起联网查询。
+            UUID cached = cachedUuid(key);
+            if (cached != null) {
+                result.merge(cached, row, (oldRow, newRow) -> {
+                    newRow.forEach((statKey, value) -> oldRow.merge(statKey, value, Long::sum));
+                    return oldRow;
+                });
+                migrated++;
+            } else {
+                unmappedLegacyRows.put(key, row);
+                unmapped++;
+            }
+        }
+        if (migrated > 0 || unmapped > 0) {
+            plugin.getLogger().info("战绩文件：已把 " + migrated + " 条按玩家名存的旧记录迁移为 UUID"
+                    + (unmapped > 0 ? "，" + unmapped + " 条在 usercache 里查不到 UUID，原样保留" : ""));
         }
         return result;
     }
 
     @Override
-    public void saveStats(Map<String, Map<String, Long>> stats) {
+    public void saveStats(Map<UUID, Map<String, Long>> stats) {
         YamlConfiguration yaml = new YamlConfiguration();
         if (stats != null) {
-            for (Map.Entry<String, Map<String, Long>> entry : stats.entrySet()) {
-                String name = entry.getKey();
-                if (name == null || name.isBlank() || entry.getValue() == null) {
+            for (Map.Entry<UUID, Map<String, Long>> entry : stats.entrySet()) {
+                UUID uuid = entry.getKey();
+                if (uuid == null || entry.getValue() == null) {
                     continue;
                 }
                 for (Map.Entry<String, Long> stat : entry.getValue().entrySet()) {
                     long value = stat.getValue() == null ? 0L : stat.getValue();
                     if (value != 0L) {
-                        yaml.set("players." + name + "." + stat.getKey(), value);
+                        yaml.set("players." + uuid + "." + stat.getKey(), value);
                     }
+                }
+            }
+        }
+        // 映射不上的旧行原样写回，不因为换了键就丢数据
+        for (Map.Entry<String, Map<String, Long>> entry : unmappedLegacyRows.entrySet()) {
+            for (Map.Entry<String, Long> stat : entry.getValue().entrySet()) {
+                long value = stat.getValue() == null ? 0L : stat.getValue();
+                if (value != 0L) {
+                    yaml.set("players." + entry.getKey() + "." + stat.getKey(), value);
                 }
             }
         }
@@ -143,6 +182,27 @@ public final class YamlDataStore implements DataStore {
     @Override
     public void close() {
         saveAll();
+    }
+
+    private static UUID parseUuid(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        try {
+            return UUID.fromString(raw.trim());
+        } catch (IllegalArgumentException ex) {
+            return null;
+        }
+    }
+
+    /** 玩家名 → UUID，只用本地 usercache；{@code Bukkit.getOfflinePlayer(String)} 会联网，不能用。 */
+    private UUID cachedUuid(String name) {
+        try {
+            OfflinePlayer cached = org.bukkit.Bukkit.getOfflinePlayerIfCached(name);
+            return cached == null ? null : cached.getUniqueId();
+        } catch (RuntimeException ex) {
+            return null;
+        }
     }
 
     /** 先写临时文件再替换，避免崩在写入中途留下截断文件。 */

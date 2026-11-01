@@ -214,6 +214,7 @@ party:
 rejoin:
   expired: '<red>重连时限已过，无法回到刚才的对局（背包已按断线快照返还）。'
   gone: '<red>刚才的对局已经结束或房间已回收，无法重连（背包已按断线快照返还）。'
+  team-full: '<red>你原来的队伍已经满员，无法重新加入（背包已按断线快照返还）。'
   back: '<gray>{player} 重新连接回到了房间 <white>{room}</white>。'
   welcome: '<green>欢迎回来，已把你送回 <white>{room}</white> 的原队伍。'
   no-session: '<gray>没有可重连的对局（对局中掉线才会在时限内保留位置）。'

@@ -180,7 +180,7 @@ public final class MatchListener implements Listener {
         MatchRules rules = room.rules();
         room.addScore(killer, rules.minionKillScore(), "击杀月人");
         room.addMinionKill(killer);                                                  // 本局计数（记分板）
-        plugin.stats().add(killer.getName(), StatsTracker.Stat.MINION_KILLS, 1L);     // 跨局累计
+        plugin.stats().add(killer.getUniqueId(), StatsTracker.Stat.MINION_KILLS, 1L);  // 跨局累计（键是 UUID）
         double healed = healOnKill(killer, rules.minionKillHeal());
         room.scoreboard().actionBar(killer, "<green>+<white>" + rules.minionKillScore()
                 + " <gray>击杀月人" + healText(healed));
@@ -206,7 +206,7 @@ public final class MatchListener implements Listener {
         // 否则「花 30 分买的钳子能用到对局结束」等于拆弹没有成本，商店就没意义了。
         room.removeClippers(victim);
         // 跨局累计：死亡数（被玩家、月人、环境杀死都算）
-        plugin.stats().add(victim.getName(), StatsTracker.Stat.DEATHS, 1L);
+        plugin.stats().add(victim.getUniqueId(), StatsTracker.Stat.DEATHS, 1L);
 
         Player killer = victim.getKiller();
         if (killer != null && plugin.rooms().roomOf(killer) == room) {
@@ -217,7 +217,7 @@ public final class MatchListener implements Listener {
                 room.addPlayerKill(killer);
                 // 加时赛只比人头：个人分已被清零，这里单独记队伍人头
                 room.addOvertimeKill(killerTeam);
-                plugin.stats().add(killer.getName(), StatsTracker.Stat.KILLS, 1L);
+                plugin.stats().add(killer.getUniqueId(), StatsTracker.Stat.KILLS, 1L);
                 // 击杀回血（需求）：满血时不回、也不刷提示
                 double healed = healOnKill(killer, rules.playerKillHeal());
                 room.scoreboard().actionBar(killer, "<green>+<white>" + rules.playerKillScore()
@@ -346,7 +346,8 @@ public final class MatchListener implements Listener {
         // 队伍信息必须在解绑前取：普通 leave 路径会随 quitMatch 移除 teams 条目
         GameRoom room = plugin.rooms().roomOf(player.getUniqueId());
         TeamId team = room == null ? null : room.teamOf(player.getUniqueId());
-        boolean rejoinable = room != null && room.isRunning() && team != null
+        // CAGED 也算：玻璃笼阶段切服 / 掉线同样要封存并保留重连资格
+        boolean rejoinable = room != null && room.isMatchInProgress() && team != null
                 && plugin.rejoin().rejoinSeconds() > 0;
         // 先把进房封存的背包转全局暂存（房间世界随后可能被删除，玩家数据随世界丢失，
         // 重连后由 restoreOfflineBackup 返还），再解除房间映射

@@ -142,7 +142,7 @@ public final class BaseCaptureManager {
                             "拆除 " + owner.display() + " 基地 #" + index);
                     if (scorer != null) {
                         // 跨局累计：拆家数
-                        plugin.stats().add(scorer.getName(), StatsTracker.Stat.BASE_CAPTURES, 1L);
+                        plugin.stats().add(scorer.getUniqueId(), StatsTracker.Stat.BASE_CAPTURES, 1L);
                     }
                     // 上面若 scorer 为 null 则不计分（理论不会发生：进度只由在场玩家推进）
                     room.broadcast("<yellow>⚑ " + owner.display() + " 的基地 #" + index

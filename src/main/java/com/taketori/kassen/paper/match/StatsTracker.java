@@ -17,6 +17,10 @@ import java.util.UUID;
  * <p>所有数值都是跨局累加、服务器重启后保留，是总计排行榜（{@link StatsMenu}）的数据来源。
  * 单局内的得分王由各 {@link com.taketori.kassen.paper.match.room.GameRoom} 在结算时播报，两者互不影响。</p>
  *
+ * <p><b>键是 UUID</b>：昵称可以改、可以重名，只有 UUID 是稳定的。显示用的名字另外缓存在
+ * {@code names} 里（排行榜、聊天栏榜单取它），查不到时回落到 usercache，再查不到就显示 UUID 前 8 位——
+ * 绝不因为改名把一个人的战绩裂成两条，也不会因为重名把两个人的数据并成一条。</p>
+ *
  * <p>键名保持向后兼容：老版本只有 <code>total-score</code> / <code>matches</code> /
  * <code>wins</code> / <code>best-score</code>，新键缺失时按 0 读入，不会报错。</p>
  */
@@ -51,8 +55,8 @@ public final class StatsTracker {
         }
     }
 
-    /** 排行榜中的一行。 */
-    public record Row(int rank, String name, long value) {
+    /** 排行榜中的一行（{@code name} 只是显示名，定位数据一律用 {@code uuid}）。 */
+    public record Row(int rank, UUID uuid, String name, long value) {
     }
 
     /** 把类别名（score / kills / minion / base / deaths / matches / wins / best）解析成统计项。 */
@@ -92,7 +96,9 @@ public final class StatsTracker {
     }
 
     private final TaketoriPlugin plugin;
-    private final Map<String, Entry> entries = new LinkedHashMap<>();
+    private final Map<UUID, Entry> entries = new LinkedHashMap<>();
+    /** 本进程见过的昵称；只用于显示，不影响数据归属。 */
+    private final Map<UUID, String> names = new LinkedHashMap<>();
 
     public StatsTracker(TaketoriPlugin plugin) {
         this.plugin = plugin;
@@ -109,7 +115,8 @@ public final class StatsTracker {
      */
     public void load() {
         entries.clear();
-        for (Map.Entry<String, Map<String, Long>> row : plugin.dataStore().loadStats().entrySet()) {
+        names.clear();
+        for (Map.Entry<UUID, Map<String, Long>> row : plugin.dataStore().loadStats().entrySet()) {
             Entry entry = new Entry();
             for (Stat stat : Stat.values()) {
                 Long value = row.getValue().get(stat.key());
@@ -125,8 +132,8 @@ public final class StatsTracker {
 
     /** 整批写回当前数据后端（YAML 重写文件；SQL 是一条条 UPSERT）。 */
     public void save() {
-        Map<String, Map<String, Long>> snapshot = new LinkedHashMap<>();
-        for (Map.Entry<String, Entry> mapEntry : entries.entrySet()) {
+        Map<UUID, Map<String, Long>> snapshot = new LinkedHashMap<>();
+        for (Map.Entry<UUID, Entry> mapEntry : entries.entrySet()) {
             Map<String, Long> row = new LinkedHashMap<>();
             for (Stat stat : Stat.values()) {
                 long value = mapEntry.getValue().get(stat);
@@ -143,20 +150,27 @@ public final class StatsTracker {
 
     // ---------------------------------------------------------------- 写入
 
-    /** 给某个玩家累加一项统计（名字为空或数量为 0 时忽略）。 */
-    public void add(String name, Stat stat, long amount) {
-        if (name == null || name.isBlank() || amount == 0L || stat == null) {
+    /** 给某个玩家累加一项统计（UUID 为空或数量为 0 时忽略）。 */
+    public void add(UUID uuid, Stat stat, long amount) {
+        if (uuid == null || amount == 0L || stat == null) {
             return;
         }
-        entries.computeIfAbsent(name, key -> new Entry()).add(stat, amount);
+        entries.computeIfAbsent(uuid, key -> new Entry()).add(stat, amount);
     }
 
     /** 只增不减的统计（例如单局最高分）。 */
-    public void max(String name, Stat stat, long value) {
-        if (name == null || name.isBlank() || stat == null || value <= 0L) {
+    public void max(UUID uuid, Stat stat, long value) {
+        if (uuid == null || stat == null || value <= 0L) {
             return;
         }
-        entries.computeIfAbsent(name, key -> new Entry()).max(stat, value);
+        entries.computeIfAbsent(uuid, key -> new Entry()).max(stat, value);
+    }
+
+    /** 记住昵称，供排行榜显示；名字变了以最新一次为准，数据仍挂在同一个 UUID 上。 */
+    public void rememberName(UUID uuid, String name) {
+        if (uuid != null && name != null && !name.isBlank()) {
+            names.put(uuid, name);
+        }
     }
 
     /**
@@ -169,9 +183,13 @@ public final class StatsTracker {
                             Map<UUID, Integer> playerScores,
                             Map<UUID, String> playerNames) {
         for (Map.Entry<UUID, String> mapEntry : playerNames.entrySet()) {
-            String name = mapEntry.getValue();
-            int score = playerScores.getOrDefault(mapEntry.getKey(), 0);
-            Entry entry = entries.computeIfAbsent(name, key -> new Entry());
+            UUID uuid = mapEntry.getKey();
+            if (uuid == null) {
+                continue;
+            }
+            rememberName(uuid, mapEntry.getValue());
+            int score = playerScores.getOrDefault(uuid, 0);
+            Entry entry = entries.computeIfAbsent(uuid, key -> new Entry());
             entry.add(Stat.MATCHES, 1L);
             entry.add(Stat.SCORE, score);
             entry.max(Stat.BEST_SCORE, score);
@@ -180,29 +198,33 @@ public final class StatsTracker {
     }
 
     /** 记录胜场（需要队伍成员名单，由 GameRoom 在结算时调用）。 */
-    public void recordWin(List<String> winners) {
-        for (String name : winners) {
-            entries.computeIfAbsent(name, key -> new Entry()).add(Stat.WINS, 1L);
+    public void recordWin(List<UUID> winners) {
+        for (UUID uuid : winners) {
+            if (uuid == null) {
+                continue;
+            }
+            entries.computeIfAbsent(uuid, key -> new Entry()).add(Stat.WINS, 1L);
         }
         save();
     }
 
     // ---------------------------------------------------------------- 查询
 
-    public long valueOf(String name, Stat stat) {
-        Entry entry = entries.get(name);
+    public long valueOf(UUID uuid, Stat stat) {
+        Entry entry = uuid == null ? null : entries.get(uuid);
         return entry == null ? 0L : entry.get(stat);
     }
 
     /** 排行榜（按某项统计降序，跳过 offset 行，取 limit 行）。 */
     public List<Row> top(Stat stat, int limit, int offset) {
-        List<Map.Entry<String, Entry>> sorted = new ArrayList<>(entries.entrySet());
+        List<Map.Entry<UUID, Entry>> sorted = new ArrayList<>(entries.entrySet());
         sorted.removeIf(entry -> entry.getValue().get(stat) <= 0L);
-        sorted.sort(Comparator.comparingLong((Map.Entry<String, Entry> e) -> e.getValue().get(stat)).reversed());
+        sorted.sort(Comparator.comparingLong((Map.Entry<UUID, Entry> e) -> e.getValue().get(stat)).reversed());
         List<Row> rows = new ArrayList<>();
         for (int i = Math.max(0, offset); i < sorted.size() && rows.size() < limit; i++) {
-            Map.Entry<String, Entry> mapEntry = sorted.get(i);
-            rows.add(new Row(i + 1, mapEntry.getKey(), mapEntry.getValue().get(stat)));
+            Map.Entry<UUID, Entry> mapEntry = sorted.get(i);
+            rows.add(new Row(i + 1, mapEntry.getKey(), displayName(mapEntry.getKey()),
+                    mapEntry.getValue().get(stat)));
         }
         return rows;
     }
@@ -234,7 +256,7 @@ public final class StatsTracker {
     public List<String> leaderboard(int limit) {
         List<String> lines = new ArrayList<>();
         for (Row row : top(Stat.SCORE, limit, 0)) {
-            Entry entry = entries.get(row.name());
+            Entry entry = entries.get(row.uuid());
             lines.add(String.format("%d. %s — 总积分 %d / 对局 %d / 胜场 %d / 击杀 %d / 月人 %d / 拆家 %d / 死亡 %d / 单局最高 %d",
                     row.rank(), row.name(), row.value(),
                     entry == null ? 0L : entry.get(Stat.MATCHES),
@@ -253,5 +275,21 @@ public final class StatsTracker {
 
     public int size() {
         return entries.size();
+    }
+
+    /**
+     * 显示名：本进程见过的昵称 → usercache 里的名字 → UUID 前 8 位。
+     *
+     * <p>这里只能用 {@link Bukkit#getOfflinePlayer(UUID)}（纯本地缓存）；按名字查的
+     * {@code getOfflinePlayer(String)} 在缓存缺失时会发起阻塞式 Web 查询，不能碰。</p>
+     */
+    private String displayName(UUID uuid) {
+        String cached = names.get(uuid);
+        String name = plugin.bedrock().displayName(uuid, cached);
+        if (name != null && !name.isBlank()) {
+            names.put(uuid, name);
+            return name;
+        }
+        return uuid.toString().substring(0, 8);
     }
 }

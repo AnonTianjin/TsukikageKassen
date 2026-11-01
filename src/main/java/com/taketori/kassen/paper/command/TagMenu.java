@@ -226,11 +226,7 @@ public final class TagMenu implements Listener {
 
     private String nameOf(UUID uuid) {
         Player player = uuid == null ? null : Bukkit.getPlayer(uuid);
-        if (player != null) {
-            return player.getName();
-        }
-        String name = Bukkit.getOfflinePlayer(uuid).getName();
-        return name == null ? uuid.toString().substring(0, 8) : name;
+        return plugin.bedrock().displayName(uuid, player == null ? null : player.getName());
     }
 
     private ItemStack button(Material material, String name, String... lore) {

@@ -1,6 +1,7 @@
 package com.taketori.kassen.data;
 
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * 统一数据持久化接口：玩家档案（角色绑定 / 隐性标签）与跨局战绩共用一套后端。
@@ -16,6 +17,9 @@ import java.util.Map;
  *       {@link #saveStats(Map)} 落盘；SQL 后端是一条条 UPSERT，不删旧行。</li>
  * </ul>
  *
+ * <p>战绩以 <b>UUID</b> 为键：昵称可以改、可以重名，UUID 不会。老版本按玩家名存的
+ * {@code stats.yml} 行会在读取时尝试按 usercache 映射到 UUID，映射不到的仍原样保留。</p>
+ *
  * <p>实现必须线程安全：数据可能在主线程（绑定角色）与异步任务（定期落盘）里同时被访问。</p>
  */
 public interface DataStore extends PlayerDataStore {
@@ -24,15 +28,15 @@ public interface DataStore extends PlayerDataStore {
     String backend();
 
     /**
-     * 载入全部战绩：玩家名 → 统计项键名 → 数值。
+     * 载入全部战绩：玩家 UUID → 统计项键名 → 数值。
      *
      * <p>键名沿用 {@code stats.yml} 的字段名（{@code total-score} / {@code kills} …），
      * 这样 YAML 与 SQL 之间可以互换而不丢数据。</p>
      */
-    Map<String, Map<String, Long>> loadStats();
+    Map<UUID, Map<String, Long>> loadStats();
 
     /** 整批写入战绩（只写非 0 项；已存在的行覆盖为传入值）。 */
-    void saveStats(Map<String, Map<String, Long>> stats);
+    void saveStats(Map<UUID, Map<String, Long>> stats);
 
     /** 断开连接 / 落盘。插件停用时调用，可重复调用。 */
     void close();

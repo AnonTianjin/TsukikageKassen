@@ -60,10 +60,10 @@ public final class SqliteDataStore extends SqlDataStore {
     @Override
     protected String createStatsTableSql() {
         return "CREATE TABLE IF NOT EXISTS {p}stats ("
-                + "player_name TEXT NOT NULL,"
+                + "uuid TEXT NOT NULL,"
                 + "stat_key TEXT NOT NULL,"
                 + "stat_value INTEGER NOT NULL DEFAULT 0,"
-                + "PRIMARY KEY (player_name, stat_key))";
+                + "PRIMARY KEY (uuid, stat_key))";
     }
 
     @Override
@@ -75,7 +75,12 @@ public final class SqliteDataStore extends SqlDataStore {
 
     @Override
     protected String upsertStatSql() {
-        return "INSERT INTO {p}stats (player_name, stat_key, stat_value) VALUES (?, ?, ?) "
-                + "ON CONFLICT(player_name, stat_key) DO UPDATE SET stat_value = excluded.stat_value";
+        return "INSERT INTO {p}stats (uuid, stat_key, stat_value) VALUES (?, ?, ?) "
+                + "ON CONFLICT(uuid, stat_key) DO UPDATE SET stat_value = excluded.stat_value";
+    }
+
+    @Override
+    protected String renameLegacyStatsTableSql() {
+        return "ALTER TABLE {p}stats RENAME TO {p}stats_legacy";
     }
 }
