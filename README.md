@@ -360,8 +360,8 @@ PVE 月人入侵：所有人同一队、不占点、玩家之间默认无伤害�
 - 打开：右键商人 NPC，或 `/taketori shop`（等价 `/taketori buy`），界面按你的队伍摆放商品；
 - 快捷购买：`/taketori shop clipper`（别名 `剪刀` / `拆弹钳`）、`/taketori shop mine`（别名 `地雷`）；
 - 商人默认是村民：无敌、无 AI、静音、不推动、不受伤，每 10 秒自愈检查一次（被杀或区块重载后自动补回）；
-- 商人位置跟随大厅：`shop.npc.<red|blue>.world` 留空 = 大厅出生点所在世界，坐标全 0 = 大厅出生点坐标；
-- 管理员站到位置上执行 `/taketori shop setnpc <red|blue>` 即可把该队商人挪过来（坐标写回 config.yml）；
+- 大厅商人的位置：`shop.npc.<red|blue>.world` 留空 = 大厅出生点所在世界，坐标全 0 = 大厅出生点坐标；管理员站到位置上执行 `/taketori shop setnpc <red|blue>` 即可把该队商人挪过来（坐标写回 config.yml）；
+- 对局房间内也有商人：2.4.1 起每局开局按红 / 蓝出生点各生成一名（红队 z+2、蓝队 z-2），对局结束或房间回收时移除；它们固定用场地出生点，不读 `shop.npc` 坐标，和大厅商人互不影响；
 - 不在进行中的对局里也能打开界面，但买不了（会提示「你不在进行中的对局中」）。
 
 ### 3.5 拆包战（bomb）与加时赛
@@ -758,6 +758,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File build-offline.ps1 -LibsDirs 
 | `WeaponYamlCheck` | 核对 weapons.yml / characters.yml 的材质、粒子、音效、药水、弹体、属性、技能类型与参数键 |
 | `MiniMessageClickTest` | 可点击文案（`click` / `hover`）的渲染 |
 | `BombShopRulesTest` | 炸弹相位参数、商店购买规则（队伍 / 积分 / 上限）与加时赛判定 |
+| `CooldownManagerTest` | 冷却键结构、到期判定与过期清理（注入假时钟，不 sleep） |
+| `PassiveRulesTest` | 武器被动参数的解析与越界钳制 |
 
 新增一个带 `main` 的测试类后，务必在 `offlineTools` 里补一行，漏登记不会报错，
 只会静默不执行（`compileOfflineTools` 仍会把它编译通过）。
