@@ -360,7 +360,7 @@ PVE 月人入侵：所有人同一队、不占点、玩家之间默认无伤害�
 - 打开：右键商人 NPC，或 `/taketori shop`（等价 `/taketori buy`），界面按你的队伍摆放商品；
 - 快捷购买：`/taketori shop clipper`（别名 `剪刀` / `拆弹钳`）、`/taketori shop mine`（别名 `地雷`）；
 - 商人默认是村民：无敌、无 AI、静音、不推动、不受伤，每 10 秒自愈检查一次（被杀或区块重载后自动补回）；
-- 大厅商人的位置：`shop.npc.<red|blue>.world` 留空 = 大厅出生点所在世界，坐标全 0 = 大厅出生点坐标；管理员站到位置上执行 `/taketori shop setnpc <red|blue>` 即可把该队商人挪过来（坐标写回 config.yml）；
+- 大厅商人的位置：`shop.npc.<red|blue>.world` 留空 = 大厅出生点所在世界，坐标全 0 = 大厅出生点坐标（并按队伍沿 z 轴错开 1.5 格）；管理员站到位置上执行 `/taketori shop setnpc <red|blue>` 即可把该队商人挪过来（坐标写回 config.yml）；
 - 对局房间内也有商人：2.4.1 起每局开局按红 / 蓝出生点各生成一名（红队 z+2、蓝队 z-2），对局结束或房间回收时移除；它们固定用场地出生点，不读 `shop.npc` 坐标，和大厅商人互不影响；
 - 不在进行中的对局里也能打开界面，但买不了（会提示「你不在进行中的对局中」）。
 
@@ -633,7 +633,7 @@ storage:
 
 ### 数值文件（插件不会覆盖）
 
-- `weapons.yml`：全部武器数值与技能参数。`attack-damage` / `attack-speed` 写的是最终值；`modes.<MODE>.skills` 会整段替换武器级同名槽位；写错的参数键会在启动时被配置校验点名。插件升级后如果控制台提示「你的 weapons.yml 是模板 v…」，说明手上这份是旧模板：备份后删掉它，`/taketori reload` 会重新生成当前模板。`config-version` 由插件写入，不用手改。参数键与数值取向见[武器设计](docs/weapons.md)。
+- `weapons.yml`：全部武器数值与技能参数。`attack-damage` / `attack-speed` 写的是最终值；每把武器的技能三槽（`skills.left` / `skills.right` / `skills.sneak`）与同级 `passive` 各管一摊，`passive` 不占按键槽；写错的参数键会在启动时被配置校验点名。插件升级后如果控制台提示「你的 weapons.yml 是模板 v…」，说明手上这份是旧模板：备份后删掉它，`/taketori reload` 会重新生成当前模板。`config-version` 由插件写入，不用手改。参数键与数值取向见[武器设计](docs/weapons.md)。
 - `characters.yml`：角色血量、移速、武器列表与描述。
 - 战国 3v3 的五份配置（改完 `/taketori reload` 即生效）：
   `sengoku.yml`（赛制 / 局时长 / 超时判定 / 天守阁）、`sengoku-towers.yml`（箭楼与守卫）、

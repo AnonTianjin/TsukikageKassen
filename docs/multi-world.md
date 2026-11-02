@@ -42,8 +42,9 @@ moonmap list                   列出库存模板与就绪状态（缺项点名�
 ## 三、房间世界生命周期
 
 1. 创建（`RoomManager.createRoom`）：校验模板存在（世界文件夹预检：`level.dat`、`region/`、
-   `entities/`、`data/` 任一存在即算世界，带 `dimensions/` 子目录的不算；缺 `level.dat` 的旧图
-   会用服务端主世界那份补齐）与 `room.max-rooms` / `max-rooms-per-player` 上限 →
+   `entities/`、`data/` 任一存在即算世界；`dimensions/minecraft/...` 或整份 `world/` 根目录
+   会自动下钻到真正含 `region/` 的层级；缺 `level.dat` 的旧图会用服务端主世界那份补齐）
+   与 `room.max-rooms` / `max-rooms-per-player` 上限 →
    异步复制模板文件夹 → 加载世界并应用规则 → 创建者传送进等待出生点；
 2. 使用：等待区集结 → 开局 → 结算，全程独占该世界；
 3. 回收（`destroyRoom`）：房内玩家先回大厅 → 从注册表移除 → 卸载世界（不保存）→

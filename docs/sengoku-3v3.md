@@ -150,8 +150,8 @@ patrol-radius / aggro-radius`。`aggro-radius` 是守卫的主动索敌半径
 | `ultimate-slot` | q | 必杀占用的输入槽；当前只支持 `q`（`usesQSlot()`，配别的值 = 必杀不接管 Q） |
 
 必杀与 Q 原行为的关系：能量未满时本文件完全不干预，Q 走 `config.yml`
-`input.q-mode`；能量满时 Q 被必杀接管（`EnergyManager.tryUltimate`，在
-`InputListener.onDrop` 中先于潜行-Q 第三槽与 q-mode 分支判定），放完立即清空。
+`input.q-mode`（丢弃 / 手持切槽 / 不处理）；能量满时 Q 被必杀接管
+（`EnergyManager.tryUltimate`，在 `InputListener.onDrop` 中先于 `q-mode` 分支判定），放完立即清空。
 
 `ultimate` 段：`default` 全员统一，逐角色键覆盖（键 = 角色 id，如 `tsukuyomi`）。
 当前效果族为 `shockwave` 同构：`damage / radius / knockback / launch /

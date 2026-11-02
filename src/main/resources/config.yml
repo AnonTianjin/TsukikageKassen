@@ -202,7 +202,7 @@ shop:
   # 商人 NPC 总开关（关掉后只能用 /taketori shop 打开界面）
   npc:
     enabled: true
-    # 红队商人：name 支持 § 颜色代码；world 留空表示跟随大厅出生点所在世界，坐标全 0 也用大厅出生点
+    # 红队商人：name 支持 § / & 颜色代码；world 留空表示跟随大厅出生点所在世界，坐标全 0 也用大厅出生点（并按队伍沿 z 轴错开 1.5 格）
     # 位置也可以让管理员站到目标点后用 /taketori shop setnpc red 现场记录
     red:
       name: '§c红队商人'
@@ -352,7 +352,7 @@ combat:
         amplifier: 0
       - type: REGENERATION
         amplifier: 0
-  # 第三槽技能（F 键 / 潜行+右键 / /taketori f）成功触发时的附加增益。
+  # 第三槽技能（2.0 起固定双击潜行，别名 /taketori sneak）成功触发时的附加增益。
   # 默认给 2 秒跳跃提升 V，让机动类技能接得上第二步；只在该次技能真的放出来时生效，
   # 冷却中被拦下的按键不会白给增益。
   third-slot-buff:
